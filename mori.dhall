@@ -45,7 +45,13 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-exporter-otlp"
+          , Schema.Dependency.ByName "hs-opentelemetry-propagator-b3"
+          , Schema.Dependency.ByName "hs-opentelemetry-propagator-datadog"
+          , Schema.Dependency.ByName "hs-opentelemetry-propagator-w3c"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -71,7 +77,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -84,7 +91,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -97,7 +105,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -110,7 +119,11 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-otlp"
+          , Schema.Dependency.ByName "hs-opentelemetry-propagator-w3c"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -123,7 +136,10 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-instrumentation-wai"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -136,7 +152,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -149,7 +166,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -162,7 +180,10 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-instrumentation-conduit"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -175,7 +196,10 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-semantic-conventions"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -188,7 +212,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -201,7 +226,10 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-instrumentation-persistent"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -214,7 +242,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -227,7 +256,10 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-sdk"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -240,7 +272,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -253,7 +286,10 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-instrumentation-wai"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -266,7 +302,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -279,7 +316,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -292,7 +330,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -305,7 +344,10 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api"
+          , Schema.Dependency.ByName "hs-opentelemetry-sdk"
+          ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
@@ -318,7 +360,8 @@ in  { project =
         , lifecycle = None Schema.Lifecycle
         , runtime = { deployable = False, exposesApi = False }
         , runtimeEnvironment = None Schema.RuntimeEnvironment
-        , dependencies = [] : List Schema.Dependency
+        , dependencies =
+          [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
