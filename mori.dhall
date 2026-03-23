@@ -373,5 +373,72 @@ in  { project =
     , skills = [] : List Schema.Skill
     , subagents = [] : List Schema.Subagent
     , standards = [] : List Text
-    , docs = [] : List Schema.DocRef
+    , docs =
+      [ { key = "api-sdk-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "OpenTelemetry API and SDK overview"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-API-SDK-Guide.md"
+        }
+      , { key = "batch-processor-filtering-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Batch processor filtering configuration"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-BatchProcessor-Filtering-Guide.md"
+        }
+      , { key = "context-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "OpenTelemetry context propagation"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Context-Guide.md"
+        }
+      , { key = "custom-sampler-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Building custom samplers"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Custom-Sampler-Guide.md"
+        }
+      , { key = "effectful-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Using OpenTelemetry with Effectful"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Effectful-Guide.md"
+        }
+      , { key = "exporters-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Configuring and using span exporters"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Exporters-Guide.md"
+        }
+      , { key = "immutable-span-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Working with ImmutableSpan"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-ImmutableSpan-Guide.md"
+        }
+      , { key = "in-span-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Using inSpan for tracing"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-inSpan-Guide.md"
+        }
+      , { key = "instrumentation-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Instrumentation patterns and usage"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Instrumentation-Guide.md"
+        }
+      , { key = "propagators-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Context propagators (W3C, B3, Datadog)"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Propagators-Guide.md"
+        }
+      , { key = "tracer-provider-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "TracerProvider setup and configuration"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-TracerProvider-Guide.md"
+        }
+      ]
     }
