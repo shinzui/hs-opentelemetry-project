@@ -1,6 +1,6 @@
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/58523ea11e120f3be1c978e509d67f51311a8280/package.dhall
-        sha256:e4acbb565c9f4e4b3831dabf084e50f8687dda780b7874ced90ae88d6f349f4f
+      https://raw.githubusercontent.com/shinzui/mori-schema/8415b4b8a746a84eecf982f0f1d7194368bf7b54/package.dhall
+        sha256:d19ae156d6c357d982a1aea0f1b6ba1f01d76d2d848545b150db75ed4c39a8a9
 
 in  { project =
         { name = "hs-opentelemetry"
@@ -35,6 +35,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-sdk"
         , type = Schema.PackageType.Library
@@ -54,6 +55,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-otlp"
         , type = Schema.PackageType.Library
@@ -67,6 +69,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-semantic-conventions"
         , type = Schema.PackageType.Library
@@ -81,6 +84,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-exporter-handle"
         , type = Schema.PackageType.Library
@@ -95,6 +99,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-exporter-in-memory"
         , type = Schema.PackageType.Library
@@ -109,6 +114,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-exporter-otlp"
         , type = Schema.PackageType.Library
@@ -126,6 +132,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-cloudflare"
         , type = Schema.PackageType.Library
@@ -142,6 +149,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-conduit"
         , type = Schema.PackageType.Library
@@ -156,6 +164,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-hspec"
         , type = Schema.PackageType.Library
@@ -170,6 +179,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-http-client"
         , type = Schema.PackageType.Library
@@ -186,6 +196,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-hw-kafka-client"
         , type = Schema.PackageType.Library
@@ -202,6 +213,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-persistent"
         , type = Schema.PackageType.Library
@@ -216,6 +228,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-persistent-mysql"
         , type = Schema.PackageType.Library
@@ -232,6 +245,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-postgresql-simple"
         , type = Schema.PackageType.Library
@@ -246,6 +260,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-tasty"
         , type = Schema.PackageType.Library
@@ -262,6 +277,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-wai"
         , type = Schema.PackageType.Library
@@ -276,6 +292,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-instrumentation-yesod"
         , type = Schema.PackageType.Library
@@ -292,6 +309,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-propagator-b3"
         , type = Schema.PackageType.Library
@@ -306,6 +324,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-propagator-datadog"
         , type = Schema.PackageType.Library
@@ -320,6 +339,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-propagator-w3c"
         , type = Schema.PackageType.Library
@@ -334,6 +354,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-utils-exceptions"
         , type = Schema.PackageType.Library
@@ -350,6 +371,7 @@ in  { project =
           ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "hs-opentelemetry-vendor-honeycomb"
         , type = Schema.PackageType.Library
@@ -364,6 +386,7 @@ in  { project =
           [ Schema.Dependency.ByName "hs-opentelemetry-api" ]
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       ]
     , bundles = [] : List Schema.PackageBundle
