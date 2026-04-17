@@ -261,6 +261,12 @@ in  Schema.Project::{ project =
         , description = Some "Configuring and using span exporters"
         , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Exporters-Guide.md"
         }
+      , Schema.DocRef::{ key = "hw-kafka-client-instrumentation-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Tracing Kafka producers and consumers with hw-kafka-client"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-hw-kafka-client-Instrumentation-Guide.md"
+        }
       , Schema.DocRef::{ key = "immutable-span-guide"
         , kind = Schema.DocKind.Guide
         , audience = Schema.DocAudience.User
@@ -284,6 +290,12 @@ in  Schema.Project::{ project =
         , audience = Schema.DocAudience.User
         , description = Some "Context propagators (W3C, B3, Datadog)"
         , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Propagators-Guide.md"
+        }
+      , Schema.DocRef::{ key = "sampling-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Head vs tail sampling strategy, built-in samplers, and Collector-based tail sampling"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Sampling-Guide.md"
         }
       , Schema.DocRef::{ key = "tracer-provider-guide"
         , kind = Schema.DocKind.Guide
