@@ -1,6 +1,6 @@
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/ad9960dd3dd3b33eadd45f17bcf430b0e1ec13bc/package.dhall
-        sha256:83aa1432e98db5da81afde4ab2057dcab7ce4b2e883d0bc7f16c7d25b917dd0c
+      https://raw.githubusercontent.com/shinzui/mori-schema/9b1d6eea8027ae57576cf0712c0b9167fccbc1a9/package.dhall
+        sha256:a19f5dd9181db28ba7a6a1b77b5ab8715e81aba3e2a8f296f40973003a0b4412
 
 in  Schema.Project::{ project =
         Schema.ProjectIdentity::{ name = "hs-opentelemetry"
@@ -296,6 +296,12 @@ in  Schema.Project::{ project =
         , audience = Schema.DocAudience.User
         , description = Some "Head vs tail sampling strategy, built-in samplers, and Collector-based tail sampling"
         , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Sampling-Guide.md"
+        }
+      , Schema.DocRef::{ key = "semantic-conventions-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Typed attribute keys generated from the OpenTelemetry semantic-conventions spec"
+        , location = Schema.DocLocation.LocalFile "docs/OpenTelemetry-Semantic-Conventions-Guide.md"
         }
       , Schema.DocRef::{ key = "tracer-provider-guide"
         , kind = Schema.DocKind.Guide
