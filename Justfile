@@ -1,14 +1,15 @@
-# Pull latest changes from upstream hs-opentelemetry
-pull-hs-opentelemetry:
-    git subtree pull --prefix=hs-opentelemetry https://github.com/iand675/hs-opentelemetry main
+# List available recipes
+default:
+    @just --list
 
-# Push local changes to upstream hs-opentelemetry
-push-hs-opentelemetry:
-    git subtree push --prefix=hs-opentelemetry https://github.com/iand675/hs-opentelemetry main
+# Update hs-opentelemetry subtree from upstream main
+update-hs-opentelemetry:
+    git subtree pull --prefix=hs-opentelemetry https://github.com/iand675/hs-opentelemetry.git main
 
-# Show log of subtree changes for hs-opentelemetry
+# Update all subtrees from upstream
+update-all: update-hs-opentelemetry
+
+# Show commit log from hs-opentelemetry upstream
 log-hs-opentelemetry:
-    git log --oneline --graph -- hs-opentelemetry/
-
-# Pull all upstream repos
-pull-all: pull-hs-opentelemetry
+    git fetch https://github.com/iand675/hs-opentelemetry.git main
+    git log --oneline FETCH_HEAD
