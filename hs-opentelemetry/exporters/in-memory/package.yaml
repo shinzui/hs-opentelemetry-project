@@ -1,5 +1,5 @@
 name:                hs-opentelemetry-exporter-in-memory
-version:             0.0.1.4
+version:             0.0.1.5
 github:              "iand675/hs-opentelemetry"
 license:             BSD3
 author:              "Ian Duncan"
@@ -25,10 +25,16 @@ dependencies:
 library:
   ghc-options: -Wall
   source-dirs: src
+  exposed-modules:
+  - OpenTelemetry.Exporter.InMemory
+  - OpenTelemetry.Exporter.InMemory.LogRecord
+  - OpenTelemetry.Exporter.InMemory.Metric
+  - OpenTelemetry.Exporter.InMemory.Span
   dependencies:
   - hs-opentelemetry-api ^>= 0.3
   - async
   - unagi-chan
+  - vector
 
 # Test suite not yet implemented
 _tests:

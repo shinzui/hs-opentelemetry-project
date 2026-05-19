@@ -1,7 +1,3 @@
------------------------------------------------------------------------------
-
------------------------------------------------------------------------------
-
 {- |
  Module      :  OpenTelemetry.Trace.TraceState
  Copyright   :  (c) Ian Duncan, 2021
@@ -24,13 +20,17 @@ module OpenTelemetry.Trace.TraceState (
   Value (..),
   empty,
   fromList,
+  lookup,
   insert,
   update,
   delete,
   toList,
+  maxTraceStateEntries,
 ) where
 
+import Data.List (find)
 import Data.Text (Text)
+import Prelude hiding (lookup)
 
 
 newtype Key = Key Text
@@ -53,21 +53,40 @@ empty :: TraceState
 empty = TraceState []
 
 
-{- | Create a 'TraceState' from a list of key-value pairs
+{- | Create a 'TraceState' from a list of key-value pairs.
 
- O(1)
+Silently truncates to 32 entries (W3C spec limit).
+
+ O(n) when list exceeds 32 entries, O(1) otherwise.
 -}
 fromList :: [(Key, Value)] -> TraceState
-fromList = TraceState
+fromList = TraceState . take maxTraceStateEntries
 
 
-{- | Add a key-value pair to a 'TraceState'
+{- | Get the value associated with a given key.
+
+ O(n)
+-}
+lookup :: Key -> TraceState -> Maybe Value
+lookup k (TraceState ts) = snd <$> find (\(k', _) -> k' == k) ts
+
+
+{- | Add a key-value pair to a 'TraceState'.
+
+If the key already exists, the entry is updated and moved to the front.
+The W3C spec limits tracestate to 32 list-members; if inserting a new key
+would exceed that limit, the rightmost (oldest) entry is dropped.
 
  O(n)
 -}
 insert :: Key -> Value -> TraceState -> TraceState
 insert k v ts = case delete k ts of
-  (TraceState l) -> TraceState ((k, v) : l)
+  (TraceState l) -> TraceState $ take maxTraceStateEntries ((k, v) : l)
+
+
+-- | W3C spec maximum: 32 list-members.
+maxTraceStateEntries :: Int
+maxTraceStateEntries = 32
 
 
 {- | Update a value in the 'TraceState'. Does nothing if

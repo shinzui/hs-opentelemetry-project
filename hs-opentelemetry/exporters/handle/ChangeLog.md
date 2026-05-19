@@ -1,5 +1,15 @@
 # Changelog for hs-opentelemetry-exporter-handle
 
+## Unreleased
+
+- `OpenTelemetry.Exporter.Handle` barrel now re-exports all three signals (Span, Metric, LogRecord); deprecated annotation removed
+- New `OpenTelemetry.Exporter.Handle.LogRecord` module (console log exporter with default formatter)
+- New `OpenTelemetry.Exporter.Handle.Metric` module (console metric exporter)
+
+## 0.0.1.3
+
+- Relax `hs-opentelemetry-api` bounds to support 0.3.x
+
 ## 0.0.1.2
 
 - Support newer dependencies

@@ -30,12 +30,15 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
-import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 import OpenTelemetry.Exporter.Span (SpanExporter)
 import qualified OpenTelemetry.Exporter.Span as SpanExporter
+import OpenTelemetry.Internal.Logging (otelLogWarning)
 import OpenTelemetry.Processor.Span
 import OpenTelemetry.Trace.Core
+import System.Timeout (timeout)
 import VectorBuilder.Builder as Builder
 import VectorBuilder.Vector as Builder
 
@@ -45,14 +48,17 @@ data BatchTimeoutConfig = BatchTimeoutConfig
   { maxQueueSize :: Int
   -- ^ The maximum queue size. After the size is reached, spans are dropped.
   , scheduledDelayMillis :: Int
-  -- ^ The delay interval in milliseconds between two consective exports.
-  -- The default value is 5000.
+  {- ^ The delay interval in milliseconds between two consective exports.
+  The default value is 5000.
+  -}
   , exportTimeoutMillis :: Int
-  -- ^ How long the export can run before it is cancelled.
-  -- The default value is 30000.
+  {- ^ How long the export can run before it is cancelled.
+  The default value is 30000.
+  -}
   , maxExportBatchSize :: Int
-  -- ^ The maximum batch size of every export. It must be
-  -- smaller or equal to 'maxQueueSize'. The default value is 512.
+  {- ^ The maximum batch size of every export. It must be
+  smaller or equal to 'maxQueueSize'. The default value is 512.
+  -}
   }
   deriving (Show)
 
@@ -160,8 +166,6 @@ will be incremented.
 --   -- TODO slice and freeze appropriate section
 -- M.slice (gbSectionSize * (r .&. gbSectionMask)
 
--- TODO, counters for dropped spans, exported spans
-
 data BoundedMap a = BoundedMap
   { itemBounds :: !Int
   , itemMaxExportBounds :: !Int
@@ -176,7 +180,7 @@ boundedMap bounds exportBounds = BoundedMap bounds exportBounds 0 mempty
 
 push :: ImmutableSpan -> BoundedMap ImmutableSpan -> Maybe (BoundedMap ImmutableSpan)
 push s m =
-  if itemCount m + 1 >= itemBounds m
+  if itemCount m >= itemBounds m
     then Nothing
     else
       Just $!
@@ -198,7 +202,7 @@ buildExport m =
   )
 
 
-data ProcessorMessage = ScheduledFlush | MaxExportFlush | Shutdown
+data ProcessorMessage = ScheduledFlush | MaxExportFlush | FlushRequested | Shutdown
 
 
 -- note: [Unmasking Asyncs]
@@ -235,48 +239,80 @@ batchProcessor :: (MonadIO m) => BatchTimeoutConfig -> SpanExporter -> m SpanPro
 batchProcessor BatchTimeoutConfig {..} exporter = liftIO $ do
   unless rtsSupportsBoundThreads $ error "The hs-opentelemetry batch processor does not work without the -threaded GHC flag!"
   batch <- newIORef $ boundedMap maxQueueSize maxExportBatchSize
+  droppedRef <- newIORef (0 :: Int)
+  warnedRef <- newIORef False
   workSignal <- newEmptyTMVarIO
   shutdownSignal <- newEmptyTMVarIO
-  let publish batchToProcess = mask_ $ do
-        -- we mask async exceptions in this, so that a buggy exporter that
-        -- catches async exceptions won't swallow them. since we use
-        -- an interruptible mask, blocking calls can still be killed, like
-        -- `threadDelay` or `putMVar` or most file I/O operations.
-        --
-        -- if we've received a shutdown, then we should be expecting
-        -- a `cancel` anytime now.
-        SpanExporter.spanExporterExport exporter batchToProcess
+  flushRequestSignal <- newEmptyTMVarIO
+  flushDoneSignal <- newEmptyTMVarIO
+  let timeoutMicros = millisToMicros exportTimeoutMillis
+
+  let publish batchToProcess = do
+        mResult <-
+          timeout timeoutMicros $
+            mask_ $
+              SpanExporter.spanExporterExport exporter batchToProcess
+        pure $ case mResult of
+          Nothing -> SpanExporter.Failure Nothing
+          Just r -> r
+
+  -- Split a batch map into a chunk of at most n items and a remainder.
+  let splitBatch n m = go n (HashMap.toList m) [] []
+        where
+          go _ [] chunkAcc restAcc = (HashMap.fromList chunkAcc, HashMap.fromList restAcc)
+          go 0 remaining chunkAcc restAcc = (HashMap.fromList chunkAcc, HashMap.fromList (restAcc ++ remaining))
+          go remaining ((lib, vec) : rest) chunkAcc restAcc
+            | V.length vec <= remaining =
+                go (remaining - V.length vec) rest ((lib, vec) : chunkAcc) restAcc
+            | otherwise =
+                let (front, back) = V.splitAt remaining vec
+                in go 0 rest ((lib, front) : chunkAcc) ((lib, back) : restAcc)
+
+  let publishBounded batchMap
+        | HashMap.null batchMap = pure SpanExporter.Success
+        | sum (V.length <$> HashMap.elems batchMap) <= maxExportBatchSize =
+            publish batchMap
+        | otherwise = do
+            let (chunk, rest) = splitBatch maxExportBatchSize batchMap
+            res <- publish chunk
+            case res of
+              SpanExporter.Failure _ -> pure res
+              SpanExporter.Success -> publishBounded rest
 
   let flushQueueImmediately ret = do
         batchToProcess <- atomicModifyIORef' batch buildExport
         if null batchToProcess
-          then do
-            pure ret
+          then pure ret
           else do
-            ret' <- publish batchToProcess
+            ret' <- publishBounded batchToProcess
             flushQueueImmediately ret'
 
+  -- Shutdown and FlushRequested are tried before work signals so they
+  -- cannot be starved under sustained high throughput.
   let waiting = do
         delay <- registerDelay (millisToMicros scheduledDelayMillis)
-        atomically $ do
+        atomically $
           msum
-            -- Flush every scheduled delay time, when we've reached the max export size, or when the shutdown signal is received.
-            [ ScheduledFlush <$ do
+            [ Shutdown <$ takeTMVar shutdownSignal
+            , FlushRequested <$ takeTMVar flushRequestSignal
+            , MaxExportFlush <$ takeTMVar workSignal
+            , ScheduledFlush <$ do
                 continue <- readTVar delay
                 check continue
-            , MaxExportFlush <$ takeTMVar workSignal
-            , Shutdown <$ takeTMVar shutdownSignal
             ]
 
   let workerAction = do
         req <- waiting
         batchToProcess <- atomicModifyIORef' batch buildExport
-        res <- publish batchToProcess
+        res <- publishBounded batchToProcess
 
-        -- if we were asked to shutdown, stop waiting and flush it all out
         case req of
           Shutdown ->
             flushQueueImmediately res
+          FlushRequested -> do
+            _ <- flushQueueImmediately res
+            atomically $ putTMVar flushDoneSignal ()
+            workerAction
           _ ->
             workerAction
   -- see note [Unmasking Asyncs]
@@ -286,21 +322,23 @@ batchProcessor BatchTimeoutConfig {..} exporter = liftIO $ do
     SpanProcessor
       { spanProcessorOnStart = \_ _ -> pure ()
       , spanProcessorOnEnd = \s -> do
-          span_ <- readIORef s
-          appendFailedOrExportNeeded <- atomicModifyIORef' batch $ \builder ->
-            case push span_ builder of
-              Nothing -> (builder, True)
+          (dropped, exportNeeded) <- atomicModifyIORef' batch $ \builder ->
+            case push s builder of
+              Nothing -> (builder, (True, True))
               Just b' ->
                 if itemCount b' >= itemMaxExportBounds b'
-                  then -- If the batch has grown to the maximum export size, prompt the worker to export it.
-                    (b', True)
-                  else (b', False)
-          when appendFailedOrExportNeeded $ void $ atomically $ tryPutTMVar workSignal ()
-      , spanProcessorForceFlush = void $ atomically $ tryPutTMVar workSignal ()
+                  then (b', (False, True))
+                  else (b', (False, False))
+          when dropped $ warnOnDrop droppedRef warnedRef maxQueueSize "BatchSpanProcessor"
+          when exportNeeded $ void $ atomically $ tryPutTMVar workSignal ()
+      , spanProcessorForceFlush = do
+          atomically $ putTMVar flushRequestSignal ()
+          atomically $ takeTMVar flushDoneSignal
+          SpanExporter.spanExporterForceFlush exporter
       , -- TODO where to call restore, if anywhere?
         spanProcessorShutdown =
-          asyncWithUnmask $ \unmask -> unmask $ do
-            -- we call asyncWithUnmask here because the shutdown action is
+          mask $ \_restore -> do
+            -- we use interruptible `mask` because the shutdown action is
             -- likely to happen inside of a `finally` or `bracket`. the
             -- @safe-exceptions@ pattern (followed by unliftio as well)
             -- will use uninterruptibleMask in an exception cleanup. the
@@ -310,46 +348,43 @@ batchProcessor BatchTimeoutConfig {..} exporter = liftIO $ do
             -- exception will not be delivered.
             --
             -- see note [Unmasking Asyncs]
-            mask $ \_restore -> do
-              -- is it a little silly that we unmask and remask? seems
-              -- silly! but the `mask` here is doing an interruptible mask.
-              -- which means that async exceptions can still be delivered
-              -- if a process is blocking.
 
-              -- flush remaining messages and signal the worker to shutdown
-              void $ atomically $ putTMVar shutdownSignal ()
+            -- flush remaining messages and signal the worker to shutdown
+            void $ atomically $ putTMVar shutdownSignal ()
 
-              -- gracefully wait for the worker to stop. we may be in
-              -- a `bracket` or responding to an async exception, so we
-              -- must be very careful not to wait too long. the following
-              -- STM action will block, so we'll be susceptible to an async
-              -- exception.
-              delay <- registerDelay (millisToMicros exportTimeoutMillis)
-              shutdownResult <-
-                atomically $
-                  msum
-                    [ Just <$> waitCatchSTM worker
-                    , Nothing <$ do
-                        shouldStop <- readTVar delay
-                        check shouldStop
-                    ]
+            -- gracefully wait for the worker to stop. we may be in
+            -- a `bracket` or responding to an async exception, so we
+            -- must be very careful not to wait too long. the following
+            -- STM action will block, so we'll be susceptible to an async
+            -- exception.
+            delay <- registerDelay (millisToMicros exportTimeoutMillis)
+            shutdownResult <-
+              atomically $
+                msum
+                  [ Just <$> waitCatchSTM worker
+                  , Nothing <$ do
+                      shouldStop <- readTVar delay
+                      check shouldStop
+                  ]
 
-              -- make sure the worker comes down if we timed out.
-              cancel worker
-              -- TODO, not convinced we should shut down processor here
+            -- make sure the worker comes down if we timed out.
+            cancel worker
+            -- OTel spec: Processor.Shutdown MUST shut down the exporter
+            SpanExporter.spanExporterShutdown exporter
 
-              pure $ case shutdownResult of
-                Nothing ->
-                  ShutdownTimeout
-                Just er ->
-                  case er of
-                    Left _ ->
-                      ShutdownFailure
-                    Right _ ->
-                      ShutdownSuccess
+            pure $ case shutdownResult of
+              Nothing ->
+                ShutdownTimeout
+              Just er ->
+                case er of
+                  Left _ ->
+                    ShutdownFailure
+                  Right _ ->
+                    ShutdownSuccess
       }
   where
     millisToMicros = (* 1000)
+
 
 {-
 buffer <- newGreenBlueBuffer _ _
@@ -370,3 +405,15 @@ pure $ Processor
 where
   sendDelay = scheduledDelayMilis * 1_000
 -}
+
+warnOnDrop :: IORef Int -> IORef Bool -> Int -> String -> IO ()
+warnOnDrop droppedRef warnedRef capacity processorName = do
+  n <- atomicModifyIORef' droppedRef (\c -> let c' = c + 1 in (c', c'))
+  alreadyWarned <- atomicModifyIORef' warnedRef (\w -> (True, w))
+  unless alreadyWarned $
+    otelLogWarning $
+      processorName
+        <> ": queue full (capacity "
+        <> show capacity
+        <> "), dropping span. Total dropped so far: "
+        <> show n

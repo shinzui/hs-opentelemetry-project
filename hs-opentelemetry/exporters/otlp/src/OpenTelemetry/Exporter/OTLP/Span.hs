@@ -55,6 +55,7 @@ import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy as L
 import qualified Data.CaseInsensitive as CI
 import Data.Char (toLower)
+import Data.IORef (readIORef)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as H
 import Data.Maybe
@@ -73,8 +74,10 @@ import Network.HTTP.Types.Header
 import Network.HTTP.Types.Status
 import OpenTelemetry.Attributes
 import qualified OpenTelemetry.Baggage as Baggage
+import OpenTelemetry.Common (optionalTimestampToMaybe)
 import OpenTelemetry.Environment
 import OpenTelemetry.Exporter.Span
+import OpenTelemetry.Internal.Common.Types (FlushResult (..), ShutdownResult (..))
 import OpenTelemetry.Propagator.W3CTraceContext (encodeTraceStateFull)
 import OpenTelemetry.Resource
 import OpenTelemetry.Trace.Core (timestampNanoseconds)
@@ -288,7 +291,8 @@ httpOtlpExporter conf = do
                       pure $ Failure $ Just err
                 Right ok -> pure ok
             else pure Success
-      , spanExporterShutdown = pure ()
+      , spanExporterShutdown = pure ShutdownSuccess
+      , spanExporterForceFlush = pure FlushSuccess
       }
   where
     retryDelay = 100_000 -- 100ms
@@ -437,11 +441,11 @@ immutableSpansToProtobuf completedSpans = do
           ( defMessage
               & Trace_Fields.resource
                 .~ ( defMessage
-                      & Trace_Fields.vec'attributes
-                        .~ attributesToProto (getMaterializedResourcesAttributes someResourceGroup)
-                      -- TODO
-                      & Trace_Fields.droppedAttributesCount
-                        .~ 0
+                       & Trace_Fields.vec'attributes
+                         .~ attributesToProto (getMaterializedResourcesAttributes someResourceGroup)
+                       -- TODO
+                       & Trace_Fields.droppedAttributesCount
+                         .~ 0
                    )
               -- TODO, seems like spans need to be emitted via an API
               -- that lets us keep them grouped by instrumentation originator
@@ -470,10 +474,10 @@ makeScopeSpans (library, completedSpans_) = do
     defMessage
       & Trace_Fields.scope
         .~ ( defMessage
-              & Trace_Fields.name
-                .~ OT.libraryName library
-              & Common_Fields.version
-                .~ OT.libraryVersion library
+               & Trace_Fields.name
+                 .~ OT.libraryName library
+               & Common_Fields.version
+                 .~ OT.libraryVersion library
            )
       & Trace_Fields.vec'spans
         .~ spans_
@@ -487,6 +491,7 @@ Translate an `OT.ImmutableSpan` span to an OTLP `Span`.
 -}
 makeSpan :: (MonadIO m) => OT.ImmutableSpan -> m Span
 makeSpan completedSpan = do
+  hot <- liftIO $ readIORef (OT.spanHot completedSpan)
   let startTime = timestampNanoseconds (OT.spanStart completedSpan)
   parentSpanF <- do
     case OT.spanParent completedSpan of
@@ -504,47 +509,47 @@ makeSpan completedSpan = do
       & Trace_Fields.traceState
         .~ T.decodeUtf8 (encodeTraceStateFull $ OT.traceState $ OT.spanContext completedSpan)
       & Trace_Fields.name
-        .~ OT.spanName completedSpan
+        .~ OT.hotName hot
       & Trace_Fields.kind
         .~ ( case OT.spanKind completedSpan of
-              OT.Server -> Span'SPAN_KIND_SERVER
-              OT.Client -> Span'SPAN_KIND_CLIENT
-              OT.Producer -> Span'SPAN_KIND_PRODUCER
-              OT.Consumer -> Span'SPAN_KIND_CONSUMER
-              OT.Internal -> Span'SPAN_KIND_INTERNAL
+               OT.Server -> Span'SPAN_KIND_SERVER
+               OT.Client -> Span'SPAN_KIND_CLIENT
+               OT.Producer -> Span'SPAN_KIND_PRODUCER
+               OT.Consumer -> Span'SPAN_KIND_CONSUMER
+               OT.Internal -> Span'SPAN_KIND_INTERNAL
            )
       & Trace_Fields.startTimeUnixNano
         .~ startTime
       & Trace_Fields.endTimeUnixNano
-        .~ maybe startTime timestampNanoseconds (OT.spanEnd completedSpan)
+        .~ maybe startTime timestampNanoseconds (optionalTimestampToMaybe (OT.hotEnd hot))
       & Trace_Fields.vec'attributes
-        .~ attributesToProto (OT.spanAttributes completedSpan)
+        .~ attributesToProto (OT.hotAttributes hot)
       & Trace_Fields.droppedAttributesCount
-        .~ fromIntegral (getCount $ OT.spanAttributes completedSpan)
+        .~ fromIntegral (getCount $ OT.hotAttributes hot)
       & Trace_Fields.vec'events
-        .~ fmap makeEvent (appendOnlyBoundedCollectionValues $ OT.spanEvents completedSpan)
+        .~ fmap makeEvent (appendOnlyBoundedCollectionValues $ OT.hotEvents hot)
       & Trace_Fields.droppedEventsCount
-        .~ fromIntegral (appendOnlyBoundedCollectionDroppedElementCount (OT.spanEvents completedSpan))
+        .~ fromIntegral (appendOnlyBoundedCollectionDroppedElementCount (OT.hotEvents hot))
       & Trace_Fields.vec'links
-        .~ fmap makeLink (appendOnlyBoundedCollectionValues $ OT.spanLinks completedSpan)
+        .~ fmap makeLink (appendOnlyBoundedCollectionValues $ OT.hotLinks hot)
       & Trace_Fields.droppedLinksCount
-        .~ fromIntegral (appendOnlyBoundedCollectionDroppedElementCount (OT.spanLinks completedSpan))
+        .~ fromIntegral (appendOnlyBoundedCollectionDroppedElementCount (OT.hotLinks hot))
       & Trace_Fields.status
-        .~ ( case OT.spanStatus completedSpan of
-              OT.Unset ->
-                defMessage
-                  & Trace_Fields.code
-                    .~ Status'STATUS_CODE_UNSET
-              OT.Ok ->
-                defMessage
-                  & Trace_Fields.code
-                    .~ Status'STATUS_CODE_OK
-              (OT.Error e) ->
-                defMessage
-                  & Trace_Fields.code
-                    .~ Status'STATUS_CODE_ERROR
-                  & Trace_Fields.message
-                    .~ e
+        .~ ( case OT.hotStatus hot of
+               OT.Unset ->
+                 defMessage
+                   & Trace_Fields.code
+                     .~ Status'STATUS_CODE_UNSET
+               OT.Ok ->
+                 defMessage
+                   & Trace_Fields.code
+                     .~ Status'STATUS_CODE_OK
+               (OT.Error e) ->
+                 defMessage
+                   & Trace_Fields.code
+                     .~ Status'STATUS_CODE_ERROR
+                   & Trace_Fields.message
+                     .~ e
            )
       & parentSpanF
 
@@ -609,9 +614,9 @@ attributesToProto =
           .~ k
         & Common_Fields.value
           .~ ( case v of
-                AttributeValue a -> primAttributeToAnyValue a
-                AttributeArray a ->
-                  defMessage
-                    & Common_Fields.arrayValue
-                      .~ (defMessage & Common_Fields.values .~ fmap primAttributeToAnyValue a)
+                 AttributeValue a -> primAttributeToAnyValue a
+                 AttributeArray a ->
+                   defMessage
+                     & Common_Fields.arrayValue
+                       .~ (defMessage & Common_Fields.values .~ fmap primAttributeToAnyValue a)
              )
