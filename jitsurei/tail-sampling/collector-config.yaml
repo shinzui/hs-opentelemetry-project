@@ -1,0 +1,94 @@
+# Tail-sampling OpenTelemetry Collector config.
+#
+# Pairs with the otlp-demo in hs-opentelemetry/examples/otlp-demo/ but lives
+# here (outside the hs-opentelemetry/ subtree) so subtree pulls never conflict
+# with it.
+#
+# Requires the *contrib* collector image — the core collector does NOT include
+# the tail_sampling processor:
+#   otel/opentelemetry-collector-contrib
+#
+# Pipeline:  app --OTLP--> [tail_sampling] --> [batch] --> Jaeger and/or VictoriaTraces
+#
+# IMPORTANT (scaling): tail_sampling buffers each trace in memory until
+# decision_wait elapses, then decides. Every span of a trace MUST reach the
+# SAME collector instance. Run a single instance, or front a collector fleet
+# with a `loadbalancing` exporter keyed by traceID (see note at the bottom).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Decide AFTER the trace is (mostly) complete.
+  # Policies are OR-combined: a trace is kept if ANY policy votes to sample.
+  tail_sampling:
+    # Wait this long after a trace's first span before deciding. Must exceed
+    # your typical end-to-end trace duration, or late spans get dropped.
+    # Trades export latency + memory for completeness.
+    decision_wait: 10s
+    # Cap on traces buffered in memory at once; tune to available RAM.
+    num_traces: 100000
+    expected_new_traces_per_sec: 1000
+    policies:
+      # 1. Keep every errored trace (any span with status = ERROR).
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+
+      # 2. Keep slow traces (>= 500ms end to end).
+      - name: keep-slow
+        type: latency
+        latency:
+          threshold_ms: 500
+
+      # 3. Probabilistic baseline for everything else: keep 5%.
+      - name: baseline-5pct
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 5
+
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  # --- Jaeger (OTLP-native; Jaeger v1.35+ with COLLECTOR_OTLP_ENABLED, or v2) ---
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # --- VictoriaTraces (OTLP HTTP ingestion) ---
+  # VictoriaTraces uses a custom ingestion path, so set the full URL via
+  # traces_endpoint. VERIFY host/port/path against your VictoriaTraces
+  # version's docs before relying on this.
+  otlphttp/victoria:
+    traces_endpoint: http://victoria-traces:10428/insert/opentelemetry/v1/traces
+
+  # Useful while tuning policies: log what survives sampling.
+  debug:
+    verbosity: normal
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      # tail_sampling BEFORE batch: sample whole traces, then batch the keepers.
+      processors: [tail_sampling, batch]
+      # Fan out to both backends; delete whichever you don't use.
+      exporters: [otlp/jaeger, otlphttp/victoria, debug]
+    # Metrics and logs are not tail-sampled — pass them straight through.
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
