@@ -20,14 +20,12 @@ import qualified Data.HashMap.Strict as H
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe)
 import Data.ProtoLens (defMessage, encodeMessage)
-import qualified Data.ProtoLens as ProtoLens
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Word (Word64)
 import Lens.Micro ((&), (.~))
 import Network.HTTP.Client
-import qualified Network.HTTP.Client as HTTPClient
 import Network.HTTP.Simple (httpBS)
 import Network.HTTP.Types.Header
 import Network.HTTP.Types.Status
@@ -42,7 +40,7 @@ import OpenTelemetry.Resource (MaterializedResources, emptyMaterializedResources
 import OpenTelemetry.Trace.Core (timestampNanoseconds, traceFlagsValue)
 import Proto.Opentelemetry.Proto.Collector.Logs.V1.LogsService (ExportLogsServiceRequest)
 import qualified Proto.Opentelemetry.Proto.Collector.Logs.V1.LogsService_Fields as LSF
-import Proto.Opentelemetry.Proto.Common.V1.Common (InstrumentationScope, KeyValue)
+import Proto.Opentelemetry.Proto.Common.V1.Common (KeyValue)
 import qualified Proto.Opentelemetry.Proto.Common.V1.Common as Common
 import qualified Proto.Opentelemetry.Proto.Common.V1.Common_Fields as CF
 import Proto.Opentelemetry.Proto.Logs.V1.Logs (ResourceLogs, ScopeLogs)
@@ -121,15 +119,8 @@ otlpLogRecordExporter conf = liftIO $ do
                 threadDelay (retryDelay `shiftL` backoffCount)
                 sendReq req (backoffCount + 1)
       case eResp of
-        Left err@(HttpExceptionRequest req' e)
-          | HTTPClient.host req' == "localhost"
-          , HTTPClient.port req' == 4317 || HTTPClient.port req' == 4318
-          , ConnectionFailure _ <- e ->
-              pure $ Failure Nothing
-          | otherwise ->
-              if isRetryableException e
-                then exponentialBackoff
-                else pure $ Failure $ Just $ SomeException err
+        Left (HttpExceptionRequest _req' e)
+          | isRetryableException e -> exponentialBackoff
         Left err -> pure $ Failure $ Just $ SomeException err
         Right resp ->
           if isRetryableStatusCode (responseStatus resp)
@@ -252,7 +243,7 @@ severityToProto = \case
   Fatal2 -> PL.SEVERITY_NUMBER_FATAL2
   Fatal3 -> PL.SEVERITY_NUMBER_FATAL3
   Fatal4 -> PL.SEVERITY_NUMBER_FATAL4
-  Unknown n -> fromMaybe PL.SEVERITY_NUMBER_UNSPECIFIED (ProtoLens.maybeToEnum n)
+  Unknown _ -> PL.SEVERITY_NUMBER_UNSPECIFIED
 
 
 logAttributesToProto :: LogAttributes -> V.Vector KeyValue
@@ -291,7 +282,7 @@ materializedResourceToProto r =
        & RF.vec'attributes
          .~ attrsToProto attrs
        & RF.droppedAttributesCount
-         .~ fromIntegral (A.getCount attrs)
+         .~ fromIntegral (A.getDropped attrs)
 
 
 instrumentationLibraryToProto :: InstrumentationLibrary -> Common.InstrumentationScope
@@ -300,7 +291,7 @@ instrumentationLibraryToProto InstrumentationLibrary {..} =
     & CF.name .~ libraryName
     & CF.version .~ libraryVersion
     & CF.vec'attributes .~ attrsToProto libraryAttributes
-    & CF.droppedAttributesCount .~ fromIntegral (A.getCount libraryAttributes)
+    & CF.droppedAttributesCount .~ fromIntegral (A.getDropped libraryAttributes)
 
 
 attrsToProto :: A.Attributes -> V.Vector KeyValue
@@ -351,7 +342,7 @@ httpLogsBaseHeaders :: OTLPExporterConfig -> Request -> RequestHeaders
 httpLogsBaseHeaders conf req =
   concat
     [ [(hContentType, httpProtobufMimeType)]
-    , [(hAcceptEncoding, httpProtobufMimeType)]
+    , [(hAccept, httpProtobufMimeType)]
     , fromMaybe [] (otlpHeaders conf)
     , requestHeaders req
     ]

@@ -67,7 +67,7 @@ data BatchTimeoutConfig = BatchTimeoutConfig
 batchTimeoutConfig :: BatchTimeoutConfig
 batchTimeoutConfig =
   BatchTimeoutConfig
-    { maxQueueSize = 1024
+    { maxQueueSize = 2048
     , scheduledDelayMillis = 5000
     , exportTimeoutMillis = 30000
     , maxExportBatchSize = 512
@@ -370,7 +370,7 @@ batchProcessor BatchTimeoutConfig {..} exporter = liftIO $ do
             -- make sure the worker comes down if we timed out.
             cancel worker
             -- OTel spec: Processor.Shutdown MUST shut down the exporter
-            SpanExporter.spanExporterShutdown exporter
+            _ <- SpanExporter.spanExporterShutdown exporter
 
             pure $ case shutdownResult of
               Nothing ->

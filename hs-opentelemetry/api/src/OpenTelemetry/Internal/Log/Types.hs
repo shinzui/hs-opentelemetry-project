@@ -2,7 +2,7 @@
 
 {- |
 Module      : OpenTelemetry.Internal.Log.Types
-Copyright   :  (c) Ian Duncan, 2024-2026
+Copyright   :  (c) Ian Duncan, 2026
 License     :  BSD-3
 Description : Internal type definitions for the Logs signal: LoggerProvider, Logger, ReadWriteLogRecord, ImmutableLogRecord, SeverityNumber.
 Stability   : experimental
@@ -265,7 +265,7 @@ guaranteed to see a consistent point-in-time view.
 @since 0.0.1.0
 -}
 mkReadableLogRecord :: ReadWriteLogRecord -> IO ReadableLogRecord
-mkReadableLogRecord rw@(ReadWriteLogRecord logger ref) = do
+mkReadableLogRecord (ReadWriteLogRecord logger ref) = do
   snapshot <- readIORef ref
   pure
     ReadableLogRecord

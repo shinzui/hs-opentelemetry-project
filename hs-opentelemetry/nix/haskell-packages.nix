@@ -12,34 +12,25 @@
 in rec {
   inherit pkgs;
 
-  skipPackages = [
-    "hs-opentelemetry-sdk"
-    "hs-opentelemetry-exporter-handle"
-    "hs-opentelemetry-exporter-in-memory"
-    "hs-opentelemetry-exporter-otlp"
-    "hs-opentelemetry-propagator-b3"
-    "hs-opentelemetry-propagator-datadog"
-    "hs-opentelemetry-propagator-w3c"
-    "hs-opentelemetry-propagator-jaeger"
-    "hs-opentelemetry-propagator-xray"
-    "hs-opentelemetry-instrumentation-cloudflare"
-    "hs-opentelemetry-instrumentation-conduit"
-    "hs-opentelemetry-instrumentation-ghc-metrics"
-    "hs-opentelemetry-instrumentation-hspec"
-    "hs-opentelemetry-instrumentation-http-client"
-    "hs-opentelemetry-instrumentation-hw-kafka-client"
-    "hs-opentelemetry-instrumentation-persistent"
-    "hs-opentelemetry-instrumentation-persistent-mysql"
-    "hs-opentelemetry-instrumentation-postgresql-simple"
-    "hs-opentelemetry-instrumentation-yesod"
-    "hs-opentelemetry-instrumentation-wai"
-    "hs-opentelemetry-instrumentation-tasty"
-    "hs-opentelemetry-utils-exceptions"
-    "hs-opentelemetry-vendor-honeycomb"
-    "hspec-example"
-    "hw-kafka-client-example"
-    "yesod-minimal"
-  ];
+  skipPackages = [];
+
+  # Packages incompatible with specific GHC versions. Keys must match
+  # supportedGHCVersions entries; absent keys default to [].
+  skipPackagesByGHCVersion = {
+    # mysql-0.2.1 Setup.hs uses Cabal [Char] paths that became SymbolicPath
+    # in Cabal 3.14 (GHC 9.12). persistent-mysql pulls in mysql, so both fail.
+    # postgresql-libpq FFI stubs generate C incompatible with libpq-18.2's
+    # char* parameter type under the stricter clang in the GHC 9.12 package set.
+    ghc912 = [
+      "hs-opentelemetry-instrumentation-persistent-mysql"
+      "hs-opentelemetry-instrumentation-postgresql-simple"
+    ];
+    # bytesmith-0.3.14.0 requires text >= 2.1 (uses ByteArray in Text ctor);
+    # GHC 9.6/9.4 have text 2.0.x. honeycomb → chronos → bytesmith cascades.
+    # TODO: release honeycomb 0.1.0.2 dropping chronos dep.
+    ghc96 = ["hs-opentelemetry-vendor-honeycomb"];
+    ghc94 = ["hs-opentelemetry-vendor-honeycomb"];
+  };
 
   localPackages = {
     hs-opentelemetry-api = ../api;
@@ -52,23 +43,33 @@ in rec {
     hs-opentelemetry-exporter-otlp = ../exporters/otlp;
     hs-opentelemetry-propagator-b3 = ../propagators/b3;
     hs-opentelemetry-propagator-datadog = ../propagators/datadog;
+    hs-opentelemetry-propagator-jaeger = ../propagators/jaeger;
+    hs-opentelemetry-propagator-xray = ../propagators/xray;
     hs-opentelemetry-propagator-w3c = ../propagators/w3c;
+    hs-opentelemetry-instrumentation-amazonka = ../instrumentation/amazonka;
     hs-opentelemetry-instrumentation-cloudflare = ../instrumentation/cloudflare;
+    hs-opentelemetry-instrumentation-co-log = ../instrumentation/co-log;
     hs-opentelemetry-instrumentation-conduit = ../instrumentation/conduit;
+    hs-opentelemetry-instrumentation-ghc-metrics = ../instrumentation/ghc-metrics;
+    hs-opentelemetry-instrumentation-gogol = ../instrumentation/gogol;
     hs-opentelemetry-instrumentation-hspec = ../instrumentation/hspec;
     hs-opentelemetry-instrumentation-http-client = ../instrumentation/http-client;
     hs-opentelemetry-instrumentation-hw-kafka-client = ../instrumentation/hw-kafka-client;
+    hs-opentelemetry-instrumentation-katip = ../instrumentation/katip;
+    hs-opentelemetry-instrumentation-monad-logger = ../instrumentation/monad-logger;
     hs-opentelemetry-instrumentation-persistent = ../instrumentation/persistent;
     hs-opentelemetry-instrumentation-persistent-mysql = ../instrumentation/persistent-mysql;
     hs-opentelemetry-instrumentation-postgresql-simple = ../instrumentation/postgresql-simple;
     hs-opentelemetry-instrumentation-yesod = ../instrumentation/yesod;
     hs-opentelemetry-instrumentation-wai = ../instrumentation/wai;
     hs-opentelemetry-instrumentation-tasty = ../instrumentation/tasty;
+    hs-opentelemetry-exporter-prometheus = ../exporters/prometheus;
     hs-opentelemetry-utils-exceptions = ../utils/exceptions;
     hs-opentelemetry-vendor-honeycomb = ../vendors/honeycomb;
 
     hspec-example = ../examples/hspec;
     hw-kafka-client-example = ../examples/hw-kafka-client-example;
+    otlp-demo = ../examples/otlp-demo;
     yesod-minimal = ../examples/yesod-minimal;
   };
 
@@ -110,10 +111,12 @@ in rec {
       key: value: let
         myLocalPackages = pluckLocalPackages value;
         k = "hs-opentelemetry-suite-${key}";
+        versionSkips = skipPackagesByGHCVersion.${key} or [];
+        allSkips = skipPackages ++ versionSkips;
       in {
         "${k}" = pkgs.buildEnv {
           name = k;
-          paths = lib.attrValues (lib.filterAttrs (n: _: !builtins.elem n skipPackages) myLocalPackages);
+          paths = lib.attrValues (lib.filterAttrs (n: _: !builtins.elem n allSkips) myLocalPackages);
         };
       }
     )
@@ -136,11 +139,22 @@ in rec {
 
   nixpkgsHaskellTweaks = final: prev: {
     # nixpkgs has 0.7.1.5, 0.7.1.6 relaxes bounds for 9.10, but we can also just
-    # relax the bounds of 0.7.1.5 ourselves
+    # relax the bounds of 0.7.1.5 ourselves.
+    # proto-lens-runtime also caps at base < 4.21 (GHC 9.12 = base 4.21).
     proto-lens = pkgs.haskell.lib.compose.doJailbreak prev.proto-lens;
+    proto-lens-runtime = pkgs.haskell.lib.compose.doJailbreak prev.proto-lens-runtime;
+    # chronos-1.1.7.0 requires text >= 2.1.2 && < 2.2, but GHC 9.8 ships text
+    # 2.0.2 and GHC 9.4/9.6 have older text. Relax the bound.
+    chronos = pkgs.haskell.lib.compose.doJailbreak prev.chronos;
     thread-utils-context = final.callCabal2nix "thread-utils-context" (builtins.fetchTarball {
       url = "https://hackage.haskell.org/package/thread-utils-context-0.4.1.0/thread-utils-context-0.4.1.0.tar.gz";
       sha256 = "0b5jcfnrf3rss6kbcdg7q1mhlnn4405zfd6b5w9qv3nmn7vw3mks";
     }) {};
+    # amazonka-2.0 has overly conservative base/containers bounds; jailbreak
+    # lets it build against newer GHC (9.10+) where base >= 4.19.
+    amazonka = pkgs.haskell.lib.compose.doJailbreak prev.amazonka;
+    amazonka-core = pkgs.haskell.lib.compose.doJailbreak prev.amazonka-core;
+    # co-log 0.7.0.0 (nixpkgs-unstable) already dropped chronos; our
+    # instrumentation accepts >= 0.6 && < 0.8, so use the native version.
   };
 }

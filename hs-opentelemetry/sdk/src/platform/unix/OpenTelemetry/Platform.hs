@@ -1,8 +1,14 @@
+{- |
+Module      : OpenTelemetry.Platform
+Description : Unix-specific platform utilities for the OpenTelemetry SDK.
+Stability   : experimental
+-}
 module OpenTelemetry.Platform where
 
 import Control.Exception (throwIO, try)
 import qualified Data.Text as T
 import System.IO.Error (isDoesNotExistError)
+import System.Posix.Process (getParentProcessID)
 import System.Posix.User (getEffectiveUserName)
 
 
@@ -15,3 +21,8 @@ tryGetUser = do
         then pure Nothing
         else throwIO err
     Right ok -> pure $ Just $ T.pack ok
+
+
+tryGetParentProcessID :: IO (Maybe Int)
+tryGetParentProcessID =
+  Just . fromIntegral <$> getParentProcessID

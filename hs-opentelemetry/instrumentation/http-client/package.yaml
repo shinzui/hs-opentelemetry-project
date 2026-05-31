@@ -1,7 +1,7 @@
 _common/lib: !include "../../package-common.yaml"
 
 name:                hs-opentelemetry-instrumentation-http-client
-version:             0.1.0.2
+version:             1.0.0.0
 
 <<: *preface
 
@@ -10,8 +10,8 @@ extra-source-files:
 - ChangeLog.md
 
 # Metadata used when publishing your package
-# synopsis:            Short description of your package
-# category:            Web
+synopsis: OpenTelemetry instrumentation for http-client
+category: OpenTelemetry, Telemetry, HTTP, Web
 
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
@@ -29,8 +29,9 @@ library:
   - bytestring
   - case-insensitive
   - conduit
-  - hs-opentelemetry-api ^>= 0.3
-  - hs-opentelemetry-instrumentation-conduit >= 0.0.1 && < 0.2
+  - hs-opentelemetry-api ^>= 1.0
+  - hs-opentelemetry-semantic-conventions >= 1.40 && < 2
+  - hs-opentelemetry-instrumentation-conduit ^>= 1.0
   - http-client
   - http-conduit
   - http-types
@@ -38,8 +39,7 @@ library:
   - unliftio
   - unordered-containers
 
-# Test suite not yet implemented
-_tests:
+tests:
   hs-opentelemetry-instrumentation-http-client-test:
     main:                Spec.hs
     source-dirs:         test
@@ -48,4 +48,13 @@ _tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - hs-opentelemetry-instrumentation-http-client
+    - hs-opentelemetry-instrumentation-http-client ^>= 1.0
+    - hs-opentelemetry-api ^>= 1.0
+    - hs-opentelemetry-sdk ^>= 1.0
+    - hs-opentelemetry-exporter-in-memory ^>= 1.0
+    - hs-opentelemetry-semantic-conventions >= 1.40 && < 2
+    - hspec
+    - text
+    - http-client
+    - http-types
+    - unordered-containers

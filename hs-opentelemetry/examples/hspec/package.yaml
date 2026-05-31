@@ -15,10 +15,10 @@ tests:
       - text
       - unliftio
       # opentelemetry dependencies
-      - hs-opentelemetry-sdk
-      - hs-opentelemetry-api
-      - hs-opentelemetry-exporter-handle
-      - hs-opentelemetry-instrumentation-hspec
+      - hs-opentelemetry-sdk ^>= 1.0
+      - hs-opentelemetry-api ^>= 1.0
+      - hs-opentelemetry-exporter-handle ^>= 1.0
+      - hs-opentelemetry-instrumentation-hspec ^>= 1.0
     main: Main.hs
     source-dirs:
       - test

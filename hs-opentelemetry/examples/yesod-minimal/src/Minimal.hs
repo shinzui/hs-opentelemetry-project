@@ -9,6 +9,7 @@
 module Minimal where
 
 import Conduit
+import Control.Monad (void)
 import Control.Monad.Logger
 import qualified Data.ByteString.Lazy as L
 import Data.Pool (Pool)
@@ -19,11 +20,17 @@ import Database.Persist.Sql.Raw.QQ
 import Database.Persist.SqlBackend.SqlPoolHooks
 import GHC.Stack
 import Network.Wai.Handler.Warp (run)
+import OpenTelemetry.Configuration.Create (OTelSignals (..))
+import OpenTelemetry.Instrumentation.GHCMetrics (registerGHCMetrics)
 import OpenTelemetry.Instrumentation.HttpClient
+import OpenTelemetry.Instrumentation.MonadLogger (makeOTelLogCallback)
 import OpenTelemetry.Instrumentation.Persistent
 import OpenTelemetry.Instrumentation.PostgresqlSimple (staticConnectionAttributes)
 import OpenTelemetry.Instrumentation.Wai
 import OpenTelemetry.Instrumentation.Yesod
+import OpenTelemetry.Log.Core (makeLogger)
+import OpenTelemetry.Metric.Core (getMeter)
+import OpenTelemetry.SDK (withOpenTelemetry)
 import OpenTelemetry.Trace hiding (inSpan, inSpan', inSpan'')
 import OpenTelemetry.Trace.Monad
 import UnliftIO hiding (Handler)
@@ -74,7 +81,8 @@ instance YesodPersist Minimal where
     app <- getYesod
     runSqlPoolWithExtensibleHooks m (minimalConnectionPool app) Nothing $
       setAlterBackend defaultSqlPoolHooks $ \conn -> do
-        -- TODO, could probably not do this on each runDB call.
+        -- Static connection attributes (server addr, port, db name) could be
+        -- cached per-pool rather than recomputed per runDB call.
         staticAttrs <- case getSimpleConn conn of
           Nothing -> pure mempty
           Just pgConn -> staticConnectionAttributes pgConn
@@ -86,9 +94,8 @@ getRootR = do
   -- Wouldn't put this here in a real app
   m <- inSpan "initialize http manager" defaultSpanArguments $ do
     liftIO $ newManager defaultManagerSettings
-  let httpConfig = httpClientInstrumentationConfig
   req <- parseUrlThrow "http://localhost:3000/api"
-  resp <- httpLbs httpConfig req m
+  resp <- httpLbs req m
   pure $ decodeUtf8 $ L.toStrict $ responseBody resp
 
 
@@ -113,13 +120,17 @@ getApiR = do
 
 
 main :: IO ()
-main = do
-  bracket
-    initializeGlobalTracerProvider
-    shutdownTracerProvider
-    $ \_ -> do
-      runNoLoggingT $ withPostgresqlPool "host=localhost dbname=otel" 5 $ \pool -> liftIO $ do
-        waiApp <- toWaiApp $ Minimal pool
-        openTelemetryWaiMiddleware <- newOpenTelemetryWaiMiddleware
+main = withOpenTelemetry $ \otel -> do
+  meter <- getMeter (otelMeterProvider otel) "yesod-minimal"
+  void $ registerGHCMetrics meter
 
-        run 3000 $ openTelemetryWaiMiddleware waiApp
+  let logger = OpenTelemetry.Log.Core.makeLogger (otelLoggerProvider otel) "yesod-minimal"
+      logCallback = makeOTelLogCallback logger
+
+  runLoggingT
+    ( withPostgresqlPool "host=localhost dbname=otel" 5 $ \pool -> liftIO $ do
+        waiApp <- toWaiApp $ Minimal pool
+        otelMiddleware <- newOpenTelemetryWaiMiddleware
+        run 3000 $ otelMiddleware waiApp
+    )
+    logCallback

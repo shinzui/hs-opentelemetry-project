@@ -94,15 +94,17 @@
                 grpc
                 haskellPackages.proto-lens-protoc
                 libffi
-                mysql80
+                mysql84
                 openssl
                 pcre
                 postgresql
                 protobuf
+                rdkafka
                 shellcheck
                 zlib
                 zstd
                 claude-code
+                opentelemetry-collector-contrib
               ];
 
               dotenv.enable = true;
@@ -133,6 +135,7 @@
         ghc96 = mkShellForGHC "ghc96";
         ghc98 = mkShellForGHC "ghc98";
         ghc910 = mkShellForGHC "ghc910";
+        ghc912 = mkShellForGHC "ghc912";
       };
 
       checks = {

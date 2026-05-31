@@ -7,10 +7,14 @@
 
 {- | Wrapper module for @Database.Persist.MySQL@ with @OpenTelemetry.Instrumentation.Persistent@.
 
-[New HTTP semantic conventions have been declared stable.](https://opentelemetry.io/blog/2023/http-conventions-declared-stable/#migration-plan) Opt-in by setting the environment variable OTEL_SEMCONV_STABILITY_OPT_IN to
-- "http" - to use the stable conventions
-- "http/dup" - to emit both the old and the stable conventions
-Otherwise, the old conventions will be used. The stable conventions will replace the old conventions in the next major release of this library.
+New database semantic conventions have been declared stable. Opt-in by setting
+the environment variable @OTEL_SEMCONV_STABILITY_OPT_IN@ to:
+
+- @"database"@ — to use the stable database conventions
+- @"database\/dup"@ — to emit both the old and the stable conventions
+
+Otherwise, the old conventions will be used. The stable conventions will
+replace the old conventions in the next major release of this library.
 -}
 module OpenTelemetry.Instrumentation.Persistent.MySQL (
   withMySQLPool,
@@ -49,7 +53,9 @@ import Database.MySQL.Base (ConnectInfo (..))
 import qualified Database.MySQL.Base as MySQL
 import qualified Database.Persist.MySQL as Orig
 import Database.Persist.Sql
+import OpenTelemetry.Attributes.Key (unkey)
 import qualified OpenTelemetry.Instrumentation.Persistent as Otel
+import qualified OpenTelemetry.SemanticConventions as SC
 import OpenTelemetry.SemanticsConfig
 import qualified OpenTelemetry.Trace.Core as Otel
 import Text.Read (readMaybe)
@@ -105,10 +111,10 @@ openMySQLConn
   -- ^ Connection information.
   -> LogFunc
   -> IO (MySQL.Connection, SqlBackend)
-openMySQLConn tp attrs ci@MySQL.ConnectInfo {connectUser, connectPort, connectOptions, connectHost} logFunc = do
+openMySQLConn tp attrs ci@MySQL.ConnectInfo {connectUser, connectPort, connectOptions, connectHost, connectDatabase} logFunc = do
   let
     portAttr, transportAttr :: Otel.Attribute
-    portAttr = fromString $ show connectPort
+    portAttr = Otel.toAttribute (fromIntegral connectPort :: Int)
     transportAttr =
       fromMaybe "ip_tcp" $
         getLast $
@@ -122,28 +128,29 @@ openMySQLConn tp attrs ci@MySQL.ConnectInfo {connectUser, connectPort, connectOp
                   MySQL.Memory -> "inproc"
               _ -> Last Nothing
     addStableAttributes =
-      H.union
-        [ ("db.connection_string" :: Text, fromString $ showsPrecConnectInfoMasked 0 ci "")
-        , ("db.user", fromString connectUser)
-        , ("server.port", portAttr)
-        , ("network.peer.port", portAttr)
-        , ("net.transport", transportAttr)
-        , (maybe "server.address" (const "network.peer.address") (readMaybe connectHost :: Maybe IP), fromString connectHost)
+      H.union $
+        [ (unkey SC.db_system_name, "mysql")
+        , (unkey SC.server_port, portAttr)
+        , (unkey SC.network_peer_port, portAttr)
+        , (maybe (unkey SC.server_address) (const (unkey SC.network_peer_address)) (readMaybe connectHost :: Maybe IP), fromString connectHost)
         ]
+          <> if null connectDatabase
+            then []
+            else [(unkey SC.db_namespace, fromString connectDatabase)]
     addOldAttributes =
       -- "net.sock.family" is unnecessary because it must be "inet" when "net.sock.peer.addr" or "net.sock.host.addr" is set.
       H.union
-        [ ("db.connection_string" :: Text, fromString $ showsPrecConnectInfoMasked 0 ci "")
-        , ("db.user", fromString connectUser)
-        , ("net.peer.port", portAttr)
-        , ("net.sock.peer.port", portAttr)
-        , ("net.transport", transportAttr)
-        , (maybe "net.peer.name" (const "net.sock.peer.addr") (readMaybe connectHost :: Maybe IP), fromString connectHost)
+        [ (unkey SC.db_connectionString, fromString $ showsPrecConnectInfoMasked 0 ci "")
+        , (unkey SC.db_user, fromString connectUser)
+        , (unkey SC.net_peer_port, portAttr)
+        , (unkey SC.net_sock_peer_port, portAttr)
+        , (unkey SC.net_transport, transportAttr)
+        , (maybe (unkey SC.net_peer_name) (const (unkey SC.net_sock_peer_addr)) (readMaybe connectHost :: Maybe IP), fromString connectHost)
         ]
 
   semanticsOptions <- getSemanticsOptions
   let attrs' =
-        case httpOption semanticsOptions of
+        case databaseOption semanticsOptions of
           Stable -> addStableAttributes attrs
           StableAndOld -> addStableAttributes $ addOldAttributes attrs
           Old -> addOldAttributes attrs
