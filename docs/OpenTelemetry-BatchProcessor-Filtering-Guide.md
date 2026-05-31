@@ -54,10 +54,9 @@ Create a separate filtering processor that wraps any other processor:
 filteringProcessor :: (ImmutableSpan -> Bool) -> SpanProcessor -> SpanProcessor
 filteringProcessor shouldProcess wrapped = SpanProcessor
   { spanProcessorOnStart = spanProcessorOnStart wrapped
-  , spanProcessorOnEnd = \spanRef -> do
-      span <- readIORef spanRef
+  , spanProcessorOnEnd = \span ->
       when (shouldProcess span) $
-        spanProcessorOnEnd wrapped spanRef
+        spanProcessorOnEnd wrapped span
   , spanProcessorShutdown = spanProcessorShutdown wrapped
   , spanProcessorForceFlush = spanProcessorForceFlush wrapped
   }
@@ -95,9 +94,7 @@ filteredBatchProcessor config = do
     
   pure SpanProcessor
     { spanProcessorOnStart = \_ _ -> pure ()
-    , spanProcessorOnEnd = \spanRef -> do
-        span <- readIORef spanRef
-        
+    , spanProcessorOnEnd = \span -> do
         -- Apply inclusion filter
         when (inclusionFilter config span) $ do
           -- Apply sampling if configured

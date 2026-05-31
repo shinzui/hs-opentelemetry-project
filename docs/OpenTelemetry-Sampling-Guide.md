@@ -122,6 +122,8 @@ Two operational notes that bite people:
 
 If you are using a managed tracing vendor (Honeycomb, Datadog, etc.) check whether they offer equivalent functionality server-side. Honeycomb's "refinery" and Datadog's ingestion sampling are purpose-built tail samplers; you may not need a Collector at all.
 
+For a ready-to-run version of this — a complete Collector config (keep-all-errors + slow + probabilistic baseline) fanning out to Jaeger and/or VictoriaTraces, plus how to stand it up against the `otlp-demo` — see `OpenTelemetry-Tail-Sampling-Example.md`.
+
 ### Approximating Tail Sampling In-Process
 
 There is a middle ground: wrap your span processor so it inspects each span at `onEnd` and drops the ones you don't care about. This is described in `OpenTelemetry-BatchProcessor-Filtering-Guide.md` as the "filtering processor wrapper" pattern:
@@ -130,10 +132,9 @@ There is a middle ground: wrap your span processor so it inspects each span at `
 filteringProcessor :: (ImmutableSpan -> Bool) -> SpanProcessor -> SpanProcessor
 filteringProcessor shouldProcess wrapped = SpanProcessor
   { spanProcessorOnStart = spanProcessorOnStart wrapped
-  , spanProcessorOnEnd = \spanRef -> do
-      span <- readIORef spanRef
+  , spanProcessorOnEnd = \span ->
       when (shouldProcess span) $
-        spanProcessorOnEnd wrapped spanRef
+        spanProcessorOnEnd wrapped span
   , spanProcessorShutdown = spanProcessorShutdown wrapped
   , spanProcessorForceFlush = spanProcessorForceFlush wrapped
   }
@@ -169,6 +170,7 @@ A common production shape for a high-volume service:
 
 ## Related Guides
 
+- `OpenTelemetry-Tail-Sampling-Example.md` — a runnable Collector tail-sampling config (Jaeger / VictoriaTraces) and how to wire it to the `otlp-demo`.
 - `OpenTelemetry-Custom-Sampler-Guide.md` — how to write a `Sampler`, including name-based, attribute-based, and composite patterns.
 - `OpenTelemetry-TracerProvider-Guide.md` — how to wire the sampler into the tracer provider via `tracerProviderOptionsSampler`.
 - `OpenTelemetry-BatchProcessor-Filtering-Guide.md` — the filtering span processor pattern in depth.
