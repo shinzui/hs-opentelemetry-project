@@ -30,8 +30,18 @@ The TracerProvider is a core component in OpenTelemetry's tracing system. It's r
   - Common implementations: `SimpleSpanProcessor`, `BatchSpanProcessor`
 
 - `IdGenerator`: Generates trace and span IDs.
-  - Interface: `IdGenerator`
-  - Default implementation: `defaultIdGenerator`
+  - Type: an ADT with two constructors:
+    ```haskell
+    data IdGenerator
+      = DefaultIdGenerator
+        -- ^ Thread-local xoshiro256++, seeded from the platform CSPRNG; zero contention.
+      | CustomIdGenerator !(IO ShortByteString) !(IO ShortByteString)
+        -- ^ (8-byte span id) (16-byte trace id)
+    ```
+  - Default: `defaultIdGenerator` (maps to `DefaultIdGenerator`).
+  - To supply your own generation, use the smart constructor:
+    `customIdGenerator :: IO ShortByteString -> IO ShortByteString -> IdGenerator`
+    (first action produces the 8-byte span id, second the 16-byte trace id).
 
 - `Sampler`: Determines which spans should be sampled and recorded.
   - Type: `data Sampler`
@@ -59,8 +69,10 @@ The TracerProvider is a core component in OpenTelemetry's tracing system. It's r
 - `setGlobalTracerProvider :: TracerProvider -> IO ()`
   - Sets the global TracerProvider for the application.
 
-- `shutdownTracerProvider :: TracerProvider -> IO ()`
-  - Gracefully shuts down a TracerProvider, flushing any pending spans.
+- `shutdownTracerProvider :: MonadIO m => TracerProvider -> Maybe Int -> m ShutdownResult`
+  - Gracefully shuts down a TracerProvider, flushing any pending spans. The `Maybe Int`
+    is an optional timeout in microseconds (defaults to 5,000,000 / 5s when `Nothing`).
+    Returns a `ShutdownResult` and is idempotent.
 
 ### Tracer Creation and Usage
 
@@ -118,7 +130,7 @@ main = withTracer $ \tracer -> do
       -- Install the SDK, pulling configuration from the environment
       initializeGlobalTracerProvider
       -- Ensure that any spans that haven't been exported yet are flushed
-      shutdownTracerProvider
+      (\tracerProvider -> shutdownTracerProvider tracerProvider Nothing)
       (\tracerProvider -> do
         -- Get a tracer so you can create spans
         tracer <- pure $ makeTracer tracerProvider $(detectInstrumentationLibrary) tracerOptions
@@ -161,7 +173,7 @@ main = do
     -- Your application code here
     pure ()
 
-  shutdownTracerProvider tracerProvider
+  _ <- shutdownTracerProvider tracerProvider (Just 5_000_000)
 ```
 
 ## Environment Variable Configuration
@@ -253,7 +265,8 @@ This name appears in your telemetry data and helps operators understand which pa
 Remember to shut down the TracerProvider when your application finishes:
 
 ```haskell
-shutdownTracerProvider tracerProvider
+-- Use a timeout in microseconds, or Nothing for the 5s default
+_ <- shutdownTracerProvider tracerProvider (Just 5_000_000)
 ```
 
 This ensures any pending spans are flushed to exporters.

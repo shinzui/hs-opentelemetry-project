@@ -197,6 +197,8 @@ instrumentRequest tracer config req = do
       pure $ req { requestHeaders = hdrs }
 ```
 
+> **Note:** `getTracerProviderPropagators` still works, but in 1.0 instrumentation is encouraged to prefer the global propagator via `getGlobalTextMapPropagator` (from `OpenTelemetry.Propagator`), which uses a `TextMap` carrier, so propagation follows whatever the application has registered globally.
+
 ## Best Practices for Library Instrumentation
 
 1. **Use `detectInstrumentationLibrary`** instead of hardcoding library names and versions.

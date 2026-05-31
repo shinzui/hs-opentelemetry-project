@@ -15,15 +15,24 @@ This guide will show you how to create your own custom sampler to implement more
 
 ## Understanding the Sampler Type
 
-A `Sampler` in OpenTelemetry Haskell is defined as:
+A `Sampler` in OpenTelemetry Haskell is an algebraic data type (ADT). The built-in
+strategies are constructors, and `CustomSampler` is the escape hatch you use to
+define your own behavior:
 
 ```haskell
-data Sampler = Sampler
-  { getDescription :: T.Text
-  -- ^ Returns the sampler name or short description
-  , shouldSample :: Context -> TraceId -> T.Text -> SpanArguments -> IO (SamplingResult, AttributeMap, TraceState)
-  -- ^ Makes a sampling decision
-  }
+data Sampler
+  = AlwaysOnSampler
+  -- ^ Always returns RecordAndSample
+  | AlwaysOffSampler
+  -- ^ Always returns Drop
+  | TraceIdRatioSampler !Double !Word64 !Attribute
+  -- ^ Samples a fraction of trace IDs
+  | ParentBasedSampler !ParentBasedOptions
+  -- ^ Respects the parent span's sampling decision
+  | AlwaysRecordSampler !Sampler
+  -- ^ Decorator that upgrades Drop -> RecordOnly for a wrapped sampler
+  | CustomSampler !T.Text !(Context -> TraceId -> T.Text -> SpanArguments -> InstrumentationLibrary -> IO SamplingDecision)
+  -- ^ A user-defined sampler: a description plus a sampling function
 
 data SamplingResult
   = Drop
@@ -33,18 +42,40 @@ data SamplingResult
   | RecordAndSample
   -- ^ Include the span in the trace and sample it (export it)
   deriving (Show, Eq)
+
+data SamplingDecision = SamplingDecision
+  { samplingOutcome :: !SamplingResult
+  -- ^ The sampling result: Drop, RecordOnly, or RecordAndSample
+  , samplingAttributes :: !AttributeMap
+  -- ^ Attributes to add to the span if it is recorded
+  , samplingTraceState :: !TraceState
+  -- ^ The TraceState to use for the new span
+  }
 ```
 
-The `shouldSample` function takes:
+You almost always construct custom samplers with `CustomSampler`, which pairs a
+description string with a sampling function. That function takes:
+
 1. A `Context` - Contains the parent span context (if any)
 2. A `TraceId` - The trace ID for the current span
 3. A `Text` name - The name of the span being created
 4. `SpanArguments` - Contains additional span attributes and options
+5. An `InstrumentationLibrary` - The instrumentation scope of the tracer creating
+   the span (required by the spec; `InstrumentationScope` is a type alias for it)
 
-And returns:
-1. A `SamplingResult` - One of `Drop`, `RecordOnly`, or `RecordAndSample`
-2. An `AttributeMap` of attributes to add to the span if sampled
-3. The `TraceState` to use for the new span
+And returns a `SamplingDecision`, which bundles three things:
+
+1. `samplingOutcome` - One of `Drop`, `RecordOnly`, or `RecordAndSample`
+2. `samplingAttributes` - An `AttributeMap` of attributes to add to the span if recorded
+3. `samplingTraceState` - The `TraceState` to use for the new span
+
+To run a sampler and read its description, use the top-level functions
+`shouldSample` and `getDescription` (these are no longer record fields):
+
+```haskell
+shouldSample   :: Sampler -> Context -> TraceId -> T.Text -> SpanArguments -> InstrumentationLibrary -> IO SamplingDecision
+getDescription :: Sampler -> T.Text
+```
 
 ## Creating a Custom Sampler
 
@@ -65,14 +96,11 @@ import OpenTelemetry.Trace.TraceState as TraceState
 -- | A sampler that only samples spans with names matching a predicate
 nameBasedSampler :: (T.Text -> Bool) -> Sampler
 nameBasedSampler predicate =
-  Sampler
-    { getDescription = "NameBasedSampler"
-    , shouldSample = \ctx _ name _ -> do
-        mspanCtxt <- sequence (getSpanContext <$> lookupSpan ctx)
-        if predicate name
-          then pure (RecordAndSample, [], maybe TraceState.empty traceState mspanCtxt)
-          else pure (Drop, [], maybe TraceState.empty traceState mspanCtxt)
-    }
+  CustomSampler "NameBasedSampler" $ \ctx _ name _ _scope -> do
+    mspanCtxt <- sequence (getSpanContext <$> lookupSpan ctx)
+    let outcome = if predicate name then RecordAndSample else Drop
+        ts = maybe TraceState.empty traceState mspanCtxt
+    pure (SamplingDecision outcome mempty ts)
 
 -- Usage examples:
 -- Sample spans with names containing "http"
@@ -89,6 +117,7 @@ databaseSampler = nameBasedSampler (T.isPrefixOf "database.")
 This sampler makes decisions based on span attributes:
 
 ```haskell
+import qualified Data.HashMap.Strict as H
 import qualified Data.Text as T
 import OpenTelemetry.Attributes
 import OpenTelemetry.Context
@@ -100,26 +129,26 @@ import OpenTelemetry.Trace.TraceState as TraceState
 -- | A sampler that inspects span attributes to make sampling decisions
 attributeBasedSampler :: (SpanArguments -> Bool) -> Sampler
 attributeBasedSampler predicate =
-  Sampler
-    { getDescription = "AttributeBasedSampler"
-    , shouldSample = \ctx _ _ spanArgs -> do
-        mspanCtxt <- sequence (getSpanContext <$> lookupSpan ctx)
-        if predicate spanArgs
-          then pure (RecordAndSample, [], maybe TraceState.empty traceState mspanCtxt)
-          else pure (Drop, [], maybe TraceState.empty traceState mspanCtxt)
-    }
+  CustomSampler "AttributeBasedSampler" $ \ctx _ _ spanArgs _scope -> do
+    mspanCtxt <- sequence (getSpanContext <$> lookupSpan ctx)
+    let outcome = if predicate spanArgs then RecordAndSample else Drop
+        ts = maybe TraceState.empty traceState mspanCtxt
+    pure (SamplingDecision outcome mempty ts)
+
+-- Note: 'attributes' on 'SpanArguments' is an 'AttributeMap'
+-- (a @HashMap Text Attribute@), so we look up keys with 'H.lookup'.
 
 -- Example: Sample spans with an "http.status_code" attribute >= 400 (errors)
 errorSampler :: Sampler
 errorSampler = attributeBasedSampler $ \spanArgs ->
-  case lookupAttribute (attributes spanArgs) "http.status_code" of
+  case H.lookup "http.status_code" (attributes spanArgs) of
     Just (AttributeValue (IntAttribute code)) -> code >= 400
     _ -> False
 
 -- Example: Sample spans with a specific user ID
 userSampler :: T.Text -> Sampler
 userSampler userId = attributeBasedSampler $ \spanArgs ->
-  case lookupAttribute (attributes spanArgs) "user.id" of
+  case H.lookup "user.id" (attributes spanArgs) of
     Just (AttributeValue (TextAttribute uid)) -> uid == userId
     _ -> False
 ```
@@ -140,15 +169,12 @@ import OpenTelemetry.Trace.TraceState as TraceState
 -- | A sampler that makes time-based sampling decisions
 timeWindowSampler :: (UTCTime -> Bool) -> Sampler
 timeWindowSampler isInWindow =
-  Sampler
-    { getDescription = "TimeWindowSampler"
-    , shouldSample = \ctx _ _ _ -> do
-        mspanCtxt <- sequence (getSpanContext <$> lookupSpan ctx)
-        currentTime <- getCurrentTime
-        if isInWindow currentTime
-          then pure (RecordAndSample, [], maybe TraceState.empty traceState mspanCtxt)
-          else pure (Drop, [], maybe TraceState.empty traceState mspanCtxt)
-    }
+  CustomSampler "TimeWindowSampler" $ \ctx _ _ _ _scope -> do
+    mspanCtxt <- sequence (getSpanContext <$> lookupSpan ctx)
+    currentTime <- getCurrentTime
+    let outcome = if isInWindow currentTime then RecordAndSample else Drop
+        ts = maybe TraceState.empty traceState mspanCtxt
+    pure (SamplingDecision outcome mempty ts)
 
 -- Example: Sample during business hours
 businessHoursSampler :: Sampler
@@ -172,28 +198,36 @@ import OpenTelemetry.Trace.TraceState as TraceState
 -- | A sampler that combines two samplers with OR logic
 orSampler :: Sampler -> Sampler -> Sampler
 orSampler s1 s2 =
-  Sampler
-    { getDescription = "OrSampler{" <> getDescription s1 <> "," <> getDescription s2 <> "}"
-    , shouldSample = \ctx tid name args -> do
-        (result1, attrs1, ts1) <- shouldSample s1 ctx tid name args
-        case result1 of
-          RecordAndSample -> pure (RecordAndSample, attrs1, ts1)
-          Drop -> shouldSample s2 ctx tid name args
-    }
+  CustomSampler ("OrSampler{" <> getDescription s1 <> "," <> getDescription s2 <> "}") $
+    \ctx tid name args scope -> do
+      d1 <- shouldSample s1 ctx tid name args scope
+      case samplingOutcome d1 of
+        RecordAndSample -> pure d1
+        _ -> shouldSample s2 ctx tid name args scope
 
 -- | A sampler that combines two samplers with AND logic
 andSampler :: Sampler -> Sampler -> Sampler
 andSampler s1 s2 =
-  Sampler
-    { getDescription = "AndSampler{" <> getDescription s1 <> "," <> getDescription s2 <> "}"
-    , shouldSample = \ctx tid name args -> do
-        (result1, attrs1, ts1) <- shouldSample s1 ctx tid name args
-        case result1 of
-          Drop -> pure (Drop, attrs1, ts1)
-          RecordAndSample -> do
-            (result2, attrs2, _) <- shouldSample s2 ctx tid name args
-            pure (result2, attrs1 ++ attrs2, ts1)
-    }
+  CustomSampler ("AndSampler{" <> getDescription s1 <> "," <> getDescription s2 <> "}") $
+    \ctx tid name args scope -> do
+      d1 <- shouldSample s1 ctx tid name args scope
+      case samplingOutcome d1 of
+        RecordAndSample -> do
+          d2 <- shouldSample s2 ctx tid name args scope
+          -- Merge attributes from both samplers; the left map wins on key clashes.
+          pure d2 {samplingAttributes = samplingAttributes d1 <> samplingAttributes d2}
+        _ -> pure d1
+```
+
+Because `getDescription` and `shouldSample` are now top-level functions that work
+on any `Sampler`, these combinators delegate to the wrapped samplers directly. If
+you need to ensure that dropped spans still reach processors (for example, a
+span-to-metrics processor), wrap any sampler with `alwaysRecord`, which upgrades a
+`Drop` outcome to `RecordOnly`:
+
+```haskell
+recordingErrorSampler :: Sampler
+recordingErrorSampler = alwaysRecord errorSampler
 ```
 
 ## Using Your Custom Sampler
@@ -215,7 +249,7 @@ main = do
   let mySampler = orSampler
                     (nameBasedSampler (T.isPrefixOf "critical."))
                     (attributeBasedSampler (\args ->
-                      case lookupAttribute (attributes args) "priority" of
+                      case H.lookup "priority" (attributes args) of
                         Just (AttributeValue (TextAttribute p)) -> p == "high"
                         _ -> False))
 
@@ -235,7 +269,7 @@ main = do
 
 3. **Sampling Rate Consistency**: When creating ratio-based samplers, ensure the sampling algorithm is consistent so related spans are sampled together.
 
-4. **Debugging**: Add informative span attributes when sampled (using the second return value of `shouldSample`) to aid in later analysis.
+4. **Debugging**: Add informative span attributes when sampled (via the `samplingAttributes` field of the returned `SamplingDecision`) to aid in later analysis.
 
 5. **Testing**: Write tests for your custom samplers to ensure they behave as expected.
 

@@ -174,10 +174,33 @@ Initialize the SDK at application startup:
 main :: IO ()
 main = bracket
   initializeGlobalTracerProvider
-  shutdownTracerProvider
+  (\provider -> shutdownTracerProvider provider Nothing)
   $ \_ -> do
     -- Your application code here
 ```
+
+`shutdownTracerProvider` takes an optional timeout in microseconds (`Nothing`
+uses the default of 5 seconds), returns a `ShutdownResult`, and is idempotent.
+
+For the common case, `OpenTelemetry.SDK.withOpenTelemetry` is a single-call entry
+point that initializes the `TracerProvider`, `MeterProvider`, and `LoggerProvider`
+from `OTEL_*` environment variables, installs the global propagator, and provides a
+unified shutdown handle:
+
+```haskell
+import OpenTelemetry.SDK (withOpenTelemetry, OTelSignals (..))
+
+main :: IO ()
+main = withOpenTelemetry $ \otel -> do
+  -- otelTracerProvider otel, otelMeterProvider otel, otelLoggerProvider otel,
+  -- and otelPropagators otel are all available here.
+  -- otelShutdown is run automatically on exit.
+  app
+```
+
+`withOpenTelemetry :: (OTelSignals -> IO a) -> IO a`. The `OTelSignals` record
+exposes `otelTracerProvider`, `otelMeterProvider`, `otelLoggerProvider`,
+`otelPropagators`, and `otelShutdown`.
 
 For more control over configuration:
 
@@ -194,7 +217,7 @@ main = do
   
   -- Application code
   
-  shutdownTracerProvider provider
+  shutdownTracerProvider provider (Just 5_000_000)
 ```
 
 ### Creating and Managing Spans
@@ -454,9 +477,12 @@ sampler = parentBased (parentBasedOptions alwaysOn)
 baggage <- empty
 baggage' <- insert baggage "user.id" userId
 
--- Store in context
+-- Store in context.
+-- NOTE: `insertBaggage` REPLACES the context's baggage slot rather than
+-- merging. To preserve any baggage already on `ctx` (e.g. from upstream
+-- propagation), merge via the Semigroup instance instead:
 ctx <- getContext
-let ctx' = insertBaggage baggage' ctx
+let ctx' = ctx <> insertBaggage baggage' Context.empty
 
 -- Run with this context
 withContext ctx' $ do

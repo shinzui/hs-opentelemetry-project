@@ -10,6 +10,8 @@ This document explains propagators in the Haskell OpenTelemetry implementation, 
   - [W3C Propagators](#w3c-propagators)
   - [B3 Propagator](#b3-propagator)
   - [Datadog Propagator](#datadog-propagator)
+  - [Jaeger Propagator](#jaeger-propagator)
+  - [AWS X-Ray Propagator](#aws-x-ray-propagator)
 - [Usage Patterns](#usage-patterns)
   - [SDK Configuration](#sdk-configuration)
   - [HTTP Server Integration](#http-server-integration)
@@ -34,11 +36,17 @@ In the Haskell implementation, a `Propagator` consists of:
 
 ```haskell
 data Propagator context inboundCarrier outboundCarrier = Propagator
-  { propagatorNames :: [Text]       -- Names for identification
+  { propagatorFields :: [Text]      -- Header field names the propagator reads/writes (the spec's "Fields")
   , extractor :: inboundCarrier -> context -> IO context  -- Extracts context from inbound carrier
   , injector :: context -> outboundCarrier -> IO outboundCarrier   -- Injects context into outbound carrier
   }
 ```
+
+> Note: the record field was previously called `propagatorNames`. As of 1.0.0 it
+> is named `propagatorFields`, and its values are the actual carrier field
+> (header) names the propagator reads and writes — e.g. `["traceparent", "tracestate"]`
+> — corresponding to the spec's `Fields`. A deprecated `propagatorNames` accessor
+> still exists as an alias but will be removed in a future release.
 
 The key operations are:
 
@@ -48,7 +56,26 @@ The key operations are:
 - `inject :: Propagator context i o -> context -> o -> IO o`
   - Injects context into the outbound carrier for transmission
 
-In practice, the propagators in this library use `Propagator Context RequestHeaders RequestHeaders` where `RequestHeaders = [(HeaderName, ByteString)]`.
+In practice, the standard propagator type is the `TextMapPropagator` alias exported from `OpenTelemetry.Propagator`:
+
+```haskell
+type TextMapPropagator = Propagator Context TextMap TextMap
+```
+
+`TextMap` is a case-insensitive map of `Text` keys to `Text` values (keys compared
+case-insensitively while preserving their original casing, matching HTTP header
+semantics). It is the only carrier defined by the OpenTelemetry specification.
+Instrumentation libraries convert between transport-specific formats (HTTP headers,
+gRPC metadata, environment variables, etc.) and `TextMap` at the boundary, then
+pass the `TextMap` to the propagator. All built-in propagators in this library are
+`TextMapPropagator`s, and the global propagator API operates on `TextMapPropagator`.
+
+`OpenTelemetry.Propagator` provides helpers for working with `TextMap`, including
+`emptyTextMap`, `textMapInsert`, `textMapLookup`, `textMapDelete`, `textMapKeys`,
+`textMapToList`, and `textMapFromList`. (Earlier versions used
+`Propagator Context RequestHeaders RequestHeaders` based on `http-types`; 1.0.0
+replaced this with `TextMap` and dropped the `http-types`/`case-insensitive`
+dependencies.)
 
 ## Available Propagators
 
@@ -89,6 +116,31 @@ The Datadog propagator enables interoperability with Datadog APM:
 - Headers: `x-datadog-trace-id`, `x-datadog-parent-id`, `x-datadog-sampling-priority`
 - Handles conversions between OpenTelemetry 128-bit IDs and Datadog 64-bit IDs
 
+### Jaeger Propagator
+
+The Jaeger propagator implements Jaeger's native propagation format:
+
+- Package: `hs-opentelemetry-propagator-jaeger`
+- Module: `OpenTelemetry.Propagator.Jaeger`
+- Usage:
+  - `jaegerPropagator` - trace context plus baggage
+  - `jaegerTraceContextPropagator` - the `uber-trace-id` header only (no baggage)
+  - `jaegerBaggagePropagator` - `uberctx-*` baggage headers only
+- Headers:
+  - `uber-trace-id`: `{trace-id}:{span-id}:{parent-span-id}:{flags}`
+  - `uberctx-{key}`: one header per baggage entry
+
+### AWS X-Ray Propagator
+
+The X-Ray propagator implements the AWS X-Ray trace header used by ALB, API
+Gateway, and other AWS services:
+
+- Package: `hs-opentelemetry-propagator-xray`
+- Module: `OpenTelemetry.Propagator.XRay`
+- Usage: `xrayPropagator`
+- Header: `X-Amzn-Trace-Id`
+- Format: `Root=1-{epoch8hex}-{unique24hex};Parent={spanid16hex};Sampled={0|1}`
+
 ## Usage Patterns
 
 ### SDK Configuration
@@ -121,8 +173,13 @@ middleware app req respond = do
   -- Extract context from request headers
   currentCtx <- getContext
   let propagator = w3cTraceContextPropagator <> w3cBaggagePropagator
-  newCtx <- extract propagator (requestHeaders req) currentCtx
-  
+      -- Convert transport-specific headers into the TextMap carrier
+      carrier = textMapFromList
+        [ (decodeUtf8 (CI.original name), decodeUtf8 value)
+        | (name, value) <- requestHeaders req
+        ]
+  newCtx <- extract propagator carrier currentCtx
+
   -- Use the extracted context for the request
   withContext newCtx $ do
     -- Your application code with the propagated context
@@ -140,16 +197,23 @@ For HTTP client requests:
 makeRequest url = do
   req <- parseRequest url
   ctx <- getContext
-  propagator <- getTracerProviderPropagator <$> getGlobalTracerProvider
-  
-  -- Inject context into outgoing request
-  headers <- inject propagator ctx []
-  let req' = req { requestHeaders = headers ++ requestHeaders req }
-  
+  -- Prefer the globally configured propagator (set by the SDK at init)
+  propagator <- getGlobalTextMapPropagator
+
+  -- Inject context into a TextMap carrier, then convert to request headers
+  tm <- inject propagator ctx emptyTextMap
+  let injected = [(CI.mk (encodeUtf8 k), encodeUtf8 v) | (k, v) <- textMapToList tm]
+      req' = req { requestHeaders = injected ++ requestHeaders req }
+
   -- Make the request with propagated context
   response <- httpLbs req' manager
   pure response
 ```
+
+Instrumentation should prefer `getGlobalTextMapPropagator` over reading the
+propagator off the `TracerProvider`. If you do need the provider's propagator,
+the accessor is `getTracerProviderPropagators` (plural), which returns a
+`TextMapPropagator`.
 
 ### Manual Context Propagation
 
@@ -193,26 +257,26 @@ When multiple propagators are composed:
 To create a custom propagator:
 
 ```haskell
-myCustomPropagator :: Propagator Context [(Text, Text)] [(Text, Text)]
+myCustomPropagator :: TextMapPropagator
 myCustomPropagator = Propagator
-  { propagatorNames = ["my-custom-propagator"]
+  { propagatorFields = ["my-header"]   -- The header field names this propagator reads/writes
   , extractor = \carrier ctx -> do
       -- Extract implementation
-      case lookup "my-header" carrier of
+      case textMapLookup "my-header" carrier of
         Just value -> do
           -- Parse value and update context
           let parsedValue = parseCustomFormat value
           pure $ insertCustomValue parsedValue ctx
         Nothing ->
           pure ctx
-          
+
   , injector = \ctx carrier -> do
       -- Inject implementation
       case lookupCustomValue ctx of
         Just value -> do
           -- Format value and add to carrier
           let formattedValue = formatCustomValue value
-          pure $ ("my-header", formattedValue) : carrier
+          pure $ textMapInsert "my-header" formattedValue carrier
         Nothing ->
           pure carrier
   }

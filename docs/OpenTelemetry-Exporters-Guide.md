@@ -132,7 +132,7 @@ The simplest approach is to let the SDK configure exporters via environment vari
 main :: IO ()
 main = bracket
   initializeGlobalTracerProvider  -- Uses environment to configure exporters
-  shutdownTracerProvider
+  (\provider -> shutdownTracerProvider provider Nothing)
   $ \_ -> app
 ```
 
@@ -162,7 +162,7 @@ main = do
   -- Set as global provider and manage lifecycle
   bracket
     (setGlobalTracerProvider provider >> pure provider)
-    shutdownTracerProvider
+    (\p -> shutdownTracerProvider p Nothing)
     $ \_ -> app
 ```
 

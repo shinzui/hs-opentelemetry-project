@@ -97,7 +97,7 @@ Spans are also annotated with caller attributes derived from `HasCallStack`, via
 
 ## Context Propagation Headers
 
-Propagation uses the tracer provider's configured propagator. The instrumentation translates between Kafka's `Headers` (a list of `(ByteString, ByteString)` pairs) and the `RequestHeaders` type the propagator API expects, preserving case-insensitive header semantics.
+Propagation uses the global propagator. The instrumentation translates between Kafka's `Headers` (a list of `(ByteString, ByteString)` pairs) and the `TextMap` carrier the propagator API expects, decoding/encoding header names and values as UTF-8 text.
 
 If your application configures `hs-opentelemetry-propagator-w3c` (the default for the SDK), produced messages will carry `traceparent` (and `tracestate` when present) headers, and consumed messages will be linked to the upstream trace automatically.
 

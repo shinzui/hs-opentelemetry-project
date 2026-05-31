@@ -24,13 +24,25 @@ The OpenTelemetry Context implementation in Haskell consists of several key comp
 
 ```haskell
 -- From OpenTelemetry.Context.Types
-newtype Context = Context V.Vault
+data Context = Context
+  { ctxSpanSlot :: {-# UNPACK #-} !(UMaybe Any)
+  , ctxBaggageSlot :: {-# UNPACK #-} !(UMaybe Baggage)
+  , ctxVault :: !V.Vault
+  }
 ```
 
-The Context is implemented as a wrapper around `Data.Vault.Strict.Vault` which provides:
-- Type-safe storage for heterogeneous values
-- Efficient lookup by unique keys
+As of 1.0.0, the Context stores its two most common values — the current
+span and baggage — in dedicated unboxed slots (`UMaybe`), with a
+`Data.Vault.Strict.Vault` carrying any other keys. This layout provides:
+- O(1) access to the span and baggage (no vault lookup or hashing)
+- Type-safe storage for arbitrary additional heterogeneous values via the vault
 - Thread-safety through immutability
+
+> **Migration note (1.0.0):** Earlier versions defined `Context` as a simple
+> `newtype Context = Context V.Vault`, storing everything (including the span
+> and baggage) in the vault. The move to dedicated slots makes `lookupSpan` and
+> `lookupBaggage` O(1), but it also means `insertBaggage` now *replaces* the
+> baggage slot rather than merging — see [Working with Baggage](#working-with-baggage) below.
 
 ### Understanding Vault
 
@@ -255,6 +267,39 @@ lookup :: Key a -> Context -> Maybe a
 delete :: Key a -> Context -> Context
 ```
 
+### Working with Baggage
+
+The span and baggage live in dedicated slots, accessed with these functions:
+
+```haskell
+-- Look up the current baggage (O(1) via the dedicated slot)
+lookupBaggage :: Context -> Maybe Baggage
+
+-- Set the baggage slot of a context
+insertBaggage :: Baggage -> Context -> Context
+
+-- Likewise for the span slot
+lookupSpan :: Context -> Maybe Span
+insertSpan  :: Span -> Context -> Context
+```
+
+> **Migration note (1.0.0):** `insertBaggage` now *replaces* the baggage slot
+> rather than merging into any existing baggage. In earlier versions baggage was
+> stored in the vault and inserting implicitly merged. To merge new baggage with
+> whatever is already present, combine contexts with the `Semigroup` instance,
+> which merges baggage (and unions the vault):
+>
+> ```haskell
+> -- old (implicitly merged):
+> let ctx' = insertBaggage newBaggage ctx
+>
+> -- new (explicit merge):
+> let ctx' = ctx <> insertBaggage newBaggage empty
+> ```
+>
+> If you actually want to overwrite the baggage, `insertBaggage newBaggage ctx`
+> still does exactly that — just be aware it no longer merges.
+
 ### Thread-Local Context Management
 
 ```haskell
@@ -264,15 +309,28 @@ getContext :: (MonadIO m) => m Context
 -- Look up current thread's context
 lookupContext :: (MonadIO m) => m (Maybe Context)
 
--- Attach a context to current thread
-attachContext :: (MonadIO m) => Context -> m (Maybe Context)
+-- Attach a context to current thread, returning a Token
+attachContext :: (MonadIO m) => Context -> m Token
 
--- Detach context from current thread
-detachContext :: (MonadIO m) => m (Maybe Context)
+-- Detach context from current thread, restoring the context active before
+-- the matching attach. Pass the Token returned by attachContext.
+detachContext :: (MonadIO m) => Token -> m ()
 
 -- Modify current thread's context
 adjustContext :: (MonadIO m) => (Context -> Context) -> m ()
 ```
+
+> **Migration note (1.0.0):** `attachContext` previously returned the *previous*
+> `Context` (as a `Maybe Context`), and `detachContext` took no argument. As of
+> 1.0.0 they are token-based: `attachContext` returns an opaque `Token` that you
+> pass to `detachContext` to restore the previously active context. The token
+> carries LIFO validation — detaching out of order (for example on an exception
+> path) logs a diagnostic warning and still restores the previous context.
+>
+> If you previously relied on the returned `Maybe Context` to obtain the
+> *previous* context for switching, you now need to capture it yourself with
+> `getContext` *before* attaching. For the common attach-then-restore pattern,
+> prefer bracketing on the returned `Token`.
 
 ### Cross-Thread Context Operations
 
@@ -280,10 +338,14 @@ The library also provides functions to manipulate contexts on specific threads:
 
 ```haskell
 lookupContextOnThread :: (MonadIO m) => ThreadId -> m (Maybe Context)
-attachContextOnThread :: (MonadIO m) => ThreadId -> Context -> m (Maybe Context)
-detachContextFromThread :: (MonadIO m) => ThreadId -> m (Maybe Context)
+attachContextOnThread :: (MonadIO m) => ThreadId -> Context -> m Token
+detachContextFromThread :: (MonadIO m) => ThreadId -> Token -> m ()
 adjustContextOnThread :: (MonadIO m) => ThreadId -> (Context -> Context) -> m ()
 ```
+
+The thread-targeted `attachContextOnThread`/`detachContextFromThread` functions
+are token-based in the same way as their current-thread counterparts: attach
+returns a `Token`, and you pass that token to detach.
 
 **Important Note**: These cross-thread functions should be used with caution, as there's no guarantee about what work the remote thread has done yet. They should be used only with specific cross-thread coordination mechanisms.
 
@@ -314,8 +376,10 @@ forkWithContext :: IO () -> IO ThreadId
 forkWithContext action = do
   parentContext <- getContext
   forkIO $ do
-    -- Attach parent's context to the child thread
-    void $ attachContext parentContext
+    -- Attach parent's context to the child thread for its whole lifetime.
+    -- The returned Token is discarded: the thread exits without detaching,
+    -- and its thread-local context is cleaned up automatically on termination.
+    _ <- attachContext parentContext
     action
 ```
 
@@ -326,11 +390,13 @@ forkWithContext action = do
 **Solution**: Use `adjustContext` instead of detach/attach:
 
 ```haskell
--- Inefficient pattern (creates multiple finalizers):
-detachContext
-attachContext newContext
+-- Inefficient pattern (creates multiple finalizers, and you must thread the
+-- Token through to detach correctly):
+token <- attachContext newContext
+-- ...
+detachContext token
 
--- Better approach (modifies in-place):
+-- Better approach (modifies in-place, no token bookkeeping):
 adjustContext (const newContext)
 ```
 
@@ -356,15 +422,10 @@ When using thread pools, special care must be taken to maintain proper context p
 
 ```haskell
 withPooledWorker :: Context -> (Context -> IO a) -> IO a
-withPooledWorker ctx action = do
-  -- Store the original context of the worker thread
-  originalCtx <- getContext
-  -- Install the requested context for the duration of the action
-  attachContext ctx
-  result <- action ctx `finally` do
-    -- Restore the original context when done
-    attachContext originalCtx
-  pure result
+withPooledWorker ctx action =
+  -- Install the requested context for the duration of the action, restoring
+  -- the worker's previous context afterward via the attach Token.
+  bracket (attachContext ctx) detachContext (const (action ctx))
 ```
 
 ### Propagation Between Services
@@ -416,11 +477,8 @@ Contexts do not automatically propagate across exception boundaries. When using 
 ```haskell
 withLocalContext :: Context -> IO a -> IO a
 withLocalContext ctx action = bracket
-  (do
-    oldCtx <- getContext
-    attachContext ctx
-    pure oldCtx)
-  (attachContext)
+  (attachContext ctx)   -- attach, capturing the Token
+  detachContext         -- restore the previous context on exit (even on exceptions)
   (const action)
 ```
 
@@ -477,9 +535,10 @@ Create utilities that ensure context propagation:
 withParentContext :: IO a -> IO a
 withParentContext action = do
   parentCtx <- getContext
-  -- Create a new thread that inherits the parent context
+  -- Create a new thread that inherits the parent context for its lifetime.
+  -- The attach Token is discarded; the spawned thread restores nothing.
   withAsync (do
-    attachContext parentCtx
+    _ <- attachContext parentCtx
     action) wait
 
 -- Run an async computation with current context
@@ -487,7 +546,7 @@ asyncWithContext :: IO a -> IO (Async a)
 asyncWithContext action = do
   ctx <- getContext
   async $ do
-    attachContext ctx
+    _ <- attachContext ctx
     action
 ```
 
@@ -496,15 +555,15 @@ asyncWithContext action = do
 Thread-utils-context supports a "context stack" pattern for nested operations:
 
 ```haskell
--- Run an action with a modified context, restoring the original after
+-- Run an action with a modified context, restoring the original after.
+-- We still need the current context to compute the modified one, but the
+-- restore is handled by the attach Token rather than by re-attaching.
 withLocalContext :: (Context -> Context) -> IO a -> IO a
 withLocalContext f action = bracket
   (do
-    original <- getContext
-    let modified = f original
-    attachContext modified
-    return original)
-  attachContext
+    modified <- f <$> getContext
+    attachContext modified)
+  detachContext
   (const action)
 
 -- Example: Add a span to the context for the duration of an action
@@ -521,15 +580,12 @@ When using worker pools, ensure workers properly handle context:
 contextAwareWorker :: TQueue (Context, IO a, TMVar a) -> IO ()
 contextAwareWorker jobQueue = forever $ do
   (ctx, job, resultVar) <- atomically $ readTQueue jobQueue
-  -- Store original worker context for restoration
-  originalCtx <- getContext
-  
-  -- Install job's context for execution
-  attachContext ctx
-  
-  -- Execute job and capture result
-  result <- job `finally` attachContext originalCtx
-  
+
+  -- Install the job's context for execution and restore the worker's previous
+  -- context afterward via the attach Token (bracket runs the release even if
+  -- the job throws).
+  result <- bracket (attachContext ctx) detachContext (const job)
+
   -- Return result
   atomically $ putTMVar resultVar result
 ```
@@ -544,7 +600,7 @@ startBackgroundService :: IO () -> IO ThreadId
 startBackgroundService service = do
   ctx <- getContext
   forkIO $ do
-    attachContext ctx
+    _ <- attachContext ctx
     service
 ```
 
@@ -676,8 +732,10 @@ For advanced debugging, you can create a utility that shows all the key names in
 ```haskell
 -- Note: This is hypothetical example code, not a library function.
 -- Requires internal access to the Vault structure which is not publicly exposed.
+-- As of 1.0.0 the Context is `Context span baggage vault`, so the arbitrary
+-- keys live in the third (vault) field.
 dumpContextKeys :: Context -> IO [Text]
-dumpContextKeys (Context vault) = do
+dumpContextKeys (Context _span _baggage vault) = do
   -- This cannot be fully implemented as Vault doesn't expose iteration
   -- or maintain a registry of created keys
   -- Return list of key names from context

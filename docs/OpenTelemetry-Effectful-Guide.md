@@ -152,7 +152,7 @@ withDatabaseTracer action = do
 withTracerProvider :: (IOE :> es) => (OTel.TracerProvider -> Eff es a) -> Eff es a
 withTracerProvider action = bracket
   (liftIO OTel.initializeGlobalTracerProvider)
-  (liftIO . OTel.shutdownTracerProvider)
+  (\p -> liftIO (OTel.shutdownTracerProvider p Nothing))
   action
 ```
 
