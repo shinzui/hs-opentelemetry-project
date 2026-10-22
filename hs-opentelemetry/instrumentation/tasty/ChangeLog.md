@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.0.0.1 - 2026-10-13
+
+- Allow `tagged` 0.9.
+- The test suite no longer depends on `hs-opentelemetry-sdk`, so it builds
+  without `proto-lens`.
+
 ## 1.0.0.0 - 2026-05-29
 
 - Update to `hs-opentelemetry-api` 0.4.
